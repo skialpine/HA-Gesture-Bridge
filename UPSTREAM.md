@@ -1,6 +1,8 @@
-# DeviceSide ancestry
+# Upstream attribution and ancestry
 
-This project was cloned from the local skialpine DeviceSide fork at commit `654db93117411f3ea0413dbcbe899b05873185bb`. The complete DeviceSide history and original MIT license are preserved.
+The upstream project is **[DeviceSide/DeviceSide](https://github.com/DeviceSide/DeviceSide)**, created and maintained by **[jasonmx](https://github.com/jasonmx) and the DeviceSide contributors**. The original MIT copyright notice, `Copyright (c) 2026 jasonmx`, is preserved in [LICENSE](LICENSE).
+
+For development, this checkout was cloned from the local skialpine fork at commit `654db93117411f3ea0413dbcbe899b05873185bb`. That fork is an intermediary; DeviceSide/DeviceSide is the original upstream project. Complete ancestry is retained.
 
 It ships the independent `ha_gesture_bridge` integration. DeviceSide command adapters remain available in the ancestor commits; the gesture integration has no DeviceSide runtime dependency. Source adapters, configuration, lifecycle and evidence are kept modular so a future contribution to DeviceSide can reuse them. The `deviceside` remote points to the original fork for comparison and contribution.
 

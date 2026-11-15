@@ -2,7 +2,7 @@
 
 Normalize physical switch, dimmer and remote gestures into one Home Assistant event entity per control. Use the events in HA automations or the Control4 HA Switch/Dimmer drivers. No Control4 or DeviceSide installation is required.
 
-This separate integration derives from a clone of the skialpine DeviceSide fork. The Git history and MIT attribution are preserved, and source adapters remain modular for a possible later DeviceSide contribution. See [ancestry and ownership](UPSTREAM.md).
+This integration builds on [DeviceSide](https://github.com/DeviceSide/DeviceSide), the upstream project by [jasonmx](https://github.com/jasonmx) and its contributors. Thank you to the DeviceSide contributors for the foundation and design ideas. DeviceSide’s Git history and original MIT copyright notice are preserved. Gesture modules remain independent and can be offered back to DeviceSide later. See [upstream attribution and ancestry](UPSTREAM.md).
 
 ## Run alongside DeviceSide
 
@@ -71,3 +71,5 @@ uv pip install --python .venv/bin/python -r requirements-test.txt
 HA-only checks need no consumer checkout. To run actual producer publications through C4's Lua consumers, explicitly set `C4_HA_SWITCH_CHECKOUT=/path/to/Control4-HA-Switch` and install LuaJIT and/or Lua. The consumer repository retains its own schema/fixtures, Lua runtime checks and packaging checks.
 
 The original DeviceSide checkout, existing C4 identities and Coordinator family APIs are unchanged. See [contributing](CONTRIBUTING.md) for stable identity and source-adapter rules.
+
+The upstream [DeviceSide audit-code skill](.agents/skills/audit-code/SKILL.md) is included for development reviews.
