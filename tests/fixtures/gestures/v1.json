@@ -1,0 +1,1609 @@
+{
+  "entity_id": "event.gesture_bridge_fixture",
+  "cases": [
+    {
+      "name": "initial_snapshot",
+      "delivery": "state",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "unknown",
+        "last_updated": "2026-11-14T20:00:00.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "snapshot",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": null
+        }
+      },
+      "expected_event": null
+    },
+    {
+      "name": "first_double_press",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:01.000+00:00",
+        "last_updated": "2026-11-14T20:00:01.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 1,
+          "gesture_event_id": "session-a:1",
+          "gesture_occurred_at": "2026-11-14T20:00:01.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": "top/press_2"
+    },
+    {
+      "name": "duplicate_delivery",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:01.000+00:00",
+        "last_updated": "2026-11-14T20:00:01.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 1,
+          "gesture_event_id": "session-a:1",
+          "gesture_occurred_at": "2026-11-14T20:00:01.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": null
+    },
+    {
+      "name": "second_identical_double_press",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:02.000+00:00",
+        "last_updated": "2026-11-14T20:00:02.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 2,
+          "gesture_event_id": "session-a:2",
+          "gesture_occurred_at": "2026-11-14T20:00:02.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": "top/press_2"
+    },
+    {
+      "name": "load_snapshot_preserves_last_press",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:02.000+00:00",
+        "last_updated": "2026-11-14T20:00:03.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "snapshot",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "on",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 2,
+          "gesture_event_id": "session-a:2",
+          "gesture_occurred_at": "2026-11-14T20:00:02.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": null
+    },
+    {
+      "name": "snapshot_of_unseen_offline_press",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:05.000+00:00",
+        "last_updated": "2026-11-14T20:00:06.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "snapshot",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 5,
+          "gesture_event_id": "session-a:5",
+          "gesture_occurred_at": "2026-11-14T20:00:05.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": null
+    },
+    {
+      "name": "fresh_press_after_snapshot",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:07.000+00:00",
+        "last_updated": "2026-11-14T20:00:07.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 6,
+          "gesture_event_id": "session-a:6",
+          "gesture_occurred_at": "2026-11-14T20:00:07.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": "top/press_2"
+    },
+    {
+      "name": "another_entity_broadcast",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.another_control",
+        "state": "2026-11-14T20:00:08.000+00:00",
+        "last_updated": "2026-11-14T20:00:08.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 7,
+          "gesture_event_id": "session-a:7",
+          "gesture_occurred_at": "2026-11-14T20:00:08.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": null
+    },
+    {
+      "name": "hold_start",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:09.000+00:00",
+        "last_updated": "2026-11-14T20:00:09.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "hold_start",
+          "button_id": "top",
+          "gesture_id": "hold_start",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 7,
+          "gesture_event_id": "session-a:7",
+          "gesture_occurred_at": "2026-11-14T20:00:09.000+00:00"
+        }
+      },
+      "expected_event": "top/hold_start"
+    },
+    {
+      "name": "hold_repeat",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:10.000+00:00",
+        "last_updated": "2026-11-14T20:00:10.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "hold_repeat",
+          "button_id": "top",
+          "gesture_id": "hold_repeat",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 8,
+          "gesture_event_id": "session-a:8",
+          "gesture_occurred_at": "2026-11-14T20:00:10.000+00:00"
+        }
+      },
+      "expected_event": "top/hold_repeat"
+    },
+    {
+      "name": "reported_release",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:11.000+00:00",
+        "last_updated": "2026-11-14T20:00:11.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "release",
+          "button_id": "top",
+          "gesture_id": "release",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 9,
+          "gesture_event_id": "session-a:9",
+          "gesture_occurred_at": "2026-11-14T20:00:11.000+00:00"
+        }
+      },
+      "expected_event": "top/release"
+    },
+    {
+      "name": "restored_history_new_session",
+      "delivery": "state",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:11.000+00:00",
+        "last_updated": "2026-11-14T20:00:20.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-b",
+          "bridge_update_kind": "snapshot",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "release",
+          "button_id": "top",
+          "gesture_id": "release",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 9,
+          "gesture_event_id": "session-a:9",
+          "gesture_occurred_at": "2026-11-14T20:00:11.000+00:00"
+        }
+      },
+      "expected_event": null
+    },
+    {
+      "name": "first_fresh_press_new_session",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:21.000+00:00",
+        "last_updated": "2026-11-14T20:00:21.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-b",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-b",
+          "gesture_sequence": 1,
+          "gesture_event_id": "session-b:1",
+          "gesture_occurred_at": "2026-11-14T20:00:21.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": "top/press_2"
+    },
+    {
+      "name": "delayed_old_session_snapshot",
+      "delivery": "state",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:02.000+00:00",
+        "last_updated": "2026-11-14T20:00:03.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-a",
+          "bridge_update_kind": "snapshot",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "on",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-a",
+          "gesture_sequence": 2,
+          "gesture_event_id": "session-a:2",
+          "gesture_occurred_at": "2026-11-14T20:00:02.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": null
+    },
+    {
+      "name": "triple_press",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:22.000+00:00",
+        "last_updated": "2026-11-14T20:00:22.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-b",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_3",
+          "gesture_session_id": "session-b",
+          "gesture_sequence": 2,
+          "gesture_event_id": "session-b:2",
+          "gesture_occurred_at": "2026-11-14T20:00:22.000+00:00",
+          "press_count": 3
+        }
+      },
+      "expected_event": "top/press_3"
+    },
+    {
+      "name": "out_of_order_sequence",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:21.000+00:00",
+        "last_updated": "2026-11-14T20:00:21.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-b",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_2",
+          "gesture_session_id": "session-b",
+          "gesture_sequence": 1,
+          "gesture_event_id": "session-b:1",
+          "gesture_occurred_at": "2026-11-14T20:00:21.000+00:00",
+          "press_count": 2
+        }
+      },
+      "expected_event": null
+    },
+    {
+      "name": "fifth_press_count",
+      "delivery": "event",
+      "state": {
+        "entity_id": "event.gesture_bridge_fixture",
+        "state": "2026-11-14T20:00:23.000+00:00",
+        "last_updated": "2026-11-14T20:00:23.000+00:00",
+        "attributes": {
+          "bridge_contract_version": "1.0",
+          "bridge_control_id": "fixture-control",
+          "bridge_session_id": "session-b",
+          "bridge_update_kind": "gesture",
+          "bridge_buttons": [
+            {
+              "id": "top",
+              "label": "Top",
+              "gestures": [
+                {
+                  "id": "press_1",
+                  "kind": "press",
+                  "label": "1 Press",
+                  "press_count": 1
+                },
+                {
+                  "id": "press_2",
+                  "kind": "press",
+                  "label": "2 Press",
+                  "press_count": 2
+                },
+                {
+                  "id": "press_3",
+                  "kind": "press",
+                  "label": "3 Press",
+                  "press_count": 3
+                },
+                {
+                  "id": "press_4",
+                  "kind": "press",
+                  "label": "4 Press",
+                  "press_count": 4
+                },
+                {
+                  "id": "press_5",
+                  "kind": "press",
+                  "label": "5 Press",
+                  "press_count": 5
+                },
+                {
+                  "id": "hold_start",
+                  "kind": "hold_start",
+                  "label": "Hold Start"
+                },
+                {
+                  "id": "hold_repeat",
+                  "kind": "hold_repeat",
+                  "label": "Hold Repeat"
+                },
+                {
+                  "id": "release",
+                  "kind": "release",
+                  "label": "Release"
+                },
+                {
+                  "id": "scene_movie",
+                  "kind": "custom",
+                  "label": "Movie Scene"
+                }
+              ]
+            }
+          ],
+          "bridge_sources": [
+            {
+              "id": "native-top",
+              "ready": true,
+              "availability": "available"
+            }
+          ],
+          "bridge_load": {
+            "entity_id": "switch.fixture",
+            "domain": "switch",
+            "state": "off",
+            "available": true
+          },
+          "event_type": "press",
+          "button_id": "top",
+          "gesture_id": "press_5",
+          "gesture_session_id": "session-b",
+          "gesture_sequence": 3,
+          "gesture_event_id": "session-b:3",
+          "gesture_occurred_at": "2026-11-14T20:00:23.000+00:00",
+          "press_count": 5
+        }
+      },
+      "expected_event": "top/press_5"
+    }
+  ]
+}

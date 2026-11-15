@@ -1,0 +1,157 @@
+# Configuration examples, not hardware compatibility claims.
+native:
+  unique_id: native_example
+  name: Native Example
+  buttons:
+  - id: top
+    label: Top
+    source_entity_id: event.remote_top
+    actions:
+      double:
+        kind: press
+        press_count: 2
+      triple:
+        kind: press
+        press_count: 3
+shared_native:
+  unique_id: shared_example
+  name: Shared Example
+  sources:
+  - id: remote
+    type: shared_native
+    source_entity_id: event.remote
+    buttons:
+    - id: top
+      label: Top
+    - id: bottom
+      label: Bottom
+    mappings:
+    - button_id: top
+      match:
+        event_type: double
+        button: up
+      gesture:
+        kind: press
+        press_count: 2
+    - button_id: bottom
+      match:
+        event_type: double
+        button: down
+      gesture:
+        kind: press
+        press_count: 2
+zwave_js:
+  unique_id: zwave_example
+  name: Z-Wave Example
+  sources:
+  - id: paddles
+    type: zwave_js
+    device_id: replace-with-ha-device-id
+    filters:
+      endpoint: 0
+    buttons:
+    - id: top
+      label: Top
+    - id: bottom
+      label: Bottom
+    mappings:
+    - button_id: top
+      match:
+        scene: 1
+        value: KeyPressed2x
+      gesture:
+        kind: press
+        press_count: 2
+    - button_id: top
+      match:
+        scene: 1
+        value: KeyPressed3x
+      gesture:
+        kind: press
+        press_count: 3
+    - button_id: bottom
+      match:
+        scene: 2
+        value: KeyPressed2x
+      gesture:
+        kind: press
+        press_count: 2
+zha:
+  unique_id: zha_example
+  name: ZHA Example
+  sources:
+  - id: remote
+    type: zha
+    device_id: replace-with-ha-device-id
+    filters:
+      endpoint_id: 1
+      cluster_id: 8
+    buttons:
+    - id: top
+      label: Top
+    mappings:
+    - button_id: top
+      match:
+        command: step
+        args.0: 0
+      gesture:
+        kind: press
+        press_count: 1
+    - button_id: top
+      match:
+        command: move
+        args.0: 0
+      gesture:
+        kind: hold_start
+    - button_id: top
+      match:
+        command: stop
+      gesture:
+        kind: release
+mqtt:
+  unique_id: mqtt_example
+  name: MQTT Example
+  sources:
+  - id: remote
+    type: mqtt
+    topic: zigbee2mqtt/office_remote
+    availability_topic: zigbee2mqtt/office_remote/availability
+    buttons:
+    - id: top
+      label: Top
+    mappings:
+    - button_id: top
+      match:
+        action: double
+      gesture:
+        kind: press
+        press_count: 2
+    - button_id: top
+      match:
+        action: hold
+      gesture:
+        kind: hold_start
+    - button_id: top
+      match:
+        action: release
+      gesture:
+        kind: release
+bus:
+  unique_id: bus_example
+  name: Bus Example
+  sources:
+  - id: remote
+    type: bus
+    event_type: vendor_remote_event
+    filters:
+      device_serial: replace-with-source-identity
+    buttons:
+    - id: top
+      label: Top
+    mappings:
+    - button_id: top
+      match:
+        action: double
+      gesture:
+        kind: press
+        press_count: 2

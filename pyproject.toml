@@ -1,51 +1,12 @@
-# Virtual project (no build backend): uv reads requires-python and the dev group from it.
-# "0" is a placeholder; the version lives in manifest.json.
+# DeviceSide-derived project layout; integration version lives in manifest.json.
 [project]
-name = "deviceside"
+name = "ha-gesture-bridge"
 version = "0"
 requires-python = ">=3.14.2"
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-# The rig's step files (tests/rig/, tests/integrations/<x>/rig/) are YAML for the rig, never tests: pytest's defaults,
-# plus rig.
-norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}", "rig"]
+[dependency-groups]
+dev = ["homeassistant==2026.11.1", "pytest==9.2.0", "pytest-asyncio==1.4.0", "jsonschema==4.26.0"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py314"
-
-lint.select = [
-    "E",  # pycodestyle errors (settings from FastAPI, thanks, @tiangolo!)
-    "W",  # pycodestyle warnings
-    "F",  # pyflakes
-    "I",  # isort
-    "C",  # flake8-comprehensions
-    "B",  # flake8-bugbear
-]
-
-[tool.ruff.format]
-quote-style = "preserve"
-
-[tool.ruff.lint.isort]
-order-by-type = true
-relative-imports-order = "closest-to-furthest"
-extra-standard-library = ["typing"]
-section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
-known-first-party = []
-
-[tool.codespell]
-ignore-words-list = "hass,currenty"
-
-[dependency-groups]
-dev = [
-    # The version HA's hue manifest requires in the HA build pytest-homeassistant-custom-component pins.
-    "aiohue==4.9.0",
-    "pytest-homeassistant-custom-component==0.13.373",
-    "pytest-randomly>=5.1.0",
-    # CI runs the suite on one worker per runner vCPU (`-n auto`), about half the serial time.
-    "pytest-xdist>=3.6",
-    # Bump with ruff-pre-commit's rev in .pre-commit-config.yaml, so the two never disagree.
-    "ruff==0.17.2",
-]

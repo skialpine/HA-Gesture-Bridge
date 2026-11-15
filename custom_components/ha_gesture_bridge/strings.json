@@ -1,0 +1,97 @@
+{
+  "title": "HA Gesture Bridge",
+  "config": {
+    "step": {
+      "user": {
+        "title": "HA Gesture Bridge",
+        "description": "Create one installation, then use Add control to configure independent paddles and remotes. No Control4 or DeviceSide installation is required.",
+        "data": {
+          "import_yaml": "Import currently loaded YAML controls into the UI"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "HA Gesture Bridge is already installed. Use Add control on its integration page."
+    }
+  },
+  "config_subentries": {
+    "control": {
+      "entry_type": "Gesture control",
+      "initiate_flow": {
+        "user": "Add control"
+      },
+      "step": {
+        "user": {
+          "title": "Gesture control",
+          "description": "Choose a source profile. A control keeps its generated identity when edited. Use Advanced mappings for custom buttons, several source types, or explicit gesture mappings.",
+          "data": {
+            "name": "Control name",
+            "source_type": "Source type"
+          }
+        },
+        "native": {
+          "title": "Native event paddle",
+          "description": "Select event entities for the top and optional bottom paddle. Only recognized event types advertised by these entities are mapped. Use Advanced mappings for other action names or custom buttons. The linked load is optional.",
+          "data": {
+            "top_entity_id": "Top event entity",
+            "bottom_entity_id": "Bottom event entity",
+            "load_entity_id": "Linked switch or light"
+          }
+        },
+        "advanced": {
+          "title": "Explicit source mappings",
+          "description": "Enter a JSON object with sources or legacy buttons, and optional load_entity_id. Each button and source needs a stable ID; keep those IDs when renaming. Native, shared native, Z-Wave JS, ZHA, MQTT and filtered HA event-bus sources are supported. The saved control identity is preserved automatically. See the integration documentation for examples.",
+          "data": {
+            "configuration": "Control configuration (JSON)"
+          }
+        },
+        "import_yaml": {
+          "title": "Import an existing YAML control",
+          "description": "Move this control into the UI without changing its identity or entity ID. Its old YAML stanza will be ignored while managed here. Other YAML controls keep working.",
+          "data": {
+            "control": "Existing control"
+          }
+        },
+        "source": {
+          "title": "Source and explicit button mappings",
+          "description": "Select the source identity and define only the actions your device actually reports. Button IDs remain stable when labels change. Mappings are a JSON list of button_id, match (exact event fields), and gesture. Add mappings for double/triple taps or held/release only when supported.",
+          "data": {
+            "device_id": "Source device",
+            "source_entity_id": "Shared native event entity",
+            "topic": "Exact MQTT action topic",
+            "availability_topic": "Optional exact availability topic",
+            "event_type": "Home Assistant event type",
+            "filters": "Required source identity filter (JSON object)",
+            "buttons": "Buttons (JSON list)",
+            "mappings": "Action mappings (JSON list)",
+            "load_entity_id": "Optional linked switch or light"
+          }
+        }
+      },
+      "error": {
+        "invalid_mapping": "The configuration is invalid. Check source IDs, event/entity/device filters, button IDs and gesture mappings. Press gestures require a positive press_count.",
+        "no_supported_events": "No recognized event_types were advertised by this source. Choose a different event entity or use explicit Advanced mappings.",
+        "mqtt_not_configured": "Add and configure the MQTT integration first, then save this control."
+      },
+      "abort": {
+        "already_configured": "This control is already configured.",
+        "no_yaml_controls": "No unimported YAML controls are currently loaded.",
+        "reconfigure_successful": "Control configuration updated."
+      }
+    }
+  },
+  "selector": {
+    "source_type": {
+      "options": {
+        "native_event": "Native event entities (automatic supported-event profile)",
+        "shared_native": "Shared native event entity",
+        "zwave_js": "Z-Wave JS central scenes",
+        "zha": "ZHA commands",
+        "mqtt": "MQTT / Zigbee2MQTT",
+        "bus": "Filtered Home Assistant event bus",
+        "advanced": "Advanced / custom mappings",
+        "import_yaml": "Import an existing YAML control"
+      }
+    }
+  }
+}

@@ -1,43 +1,11 @@
-# Byte-compiled / cache
-__pycache__/
-*.py[cod]
-.*_cache
-
-# Secrets
-.env
-.env.rig
-
-# Household details (check-private's blocklist; the rig writes .private-terms.rig)
-.private-terms
-.private-terms.rig
-# Where the rig kept its profiles before it moved out; ignored so a stale copy is never committed
-tests/rig/profiles/
-
-# Virtual environments
 .venv/
-venv/
-env/
-
-# VS Code
-.vscode/
-
-# macOS
-.DS_Store
-
-# Logs
-*.log
-
-# Claude Code
-CLAUDE.local.md
-.claude/settings.local.json
-
-# pytest-cov data
+__pycache__/
+.pytest_cache/
+.ruff_cache/
 .coverage
-.coverage.*
-coverage.json
-
-# Worktrees (claude --worktree, EnterWorktree)
-.claude/worktrees/
-
-# Working notes (interviews, scratch)
-/notes/
+dist/
+*.egg-info/
+.DS_Store
+.mcp.json
+/openspec/
+/.agents/skills/openspec-*/

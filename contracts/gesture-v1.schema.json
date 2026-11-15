@@ -1,0 +1,487 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ha-gesture-bridge:state:1",
+  "title": "HA Gesture Bridge version 1 state",
+  "type": "object",
+  "required": [
+    "entity_id",
+    "state",
+    "last_updated",
+    "attributes"
+  ],
+  "properties": {
+    "entity_id": {
+      "type": "string",
+      "pattern": "^event\\.[a-z0-9_]+$"
+    },
+    "state": {
+      "type": "string"
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "attributes": {
+      "$ref": "#/$defs/attributes"
+    }
+  },
+  "$defs": {
+    "identity": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "maxLength": 128
+    },
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 64
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "kind": {
+      "enum": [
+        "press",
+        "hold_start",
+        "hold_repeat",
+        "release",
+        "custom"
+      ]
+    },
+    "gesture": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/key"
+        },
+        "kind": {
+          "$ref": "#/$defs/kind"
+        },
+        "label": {
+          "$ref": "#/$defs/label"
+        },
+        "press_count": {
+          "$ref": "#/$defs/count"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "press"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "press_count"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "press_count"
+              ]
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "button": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "gestures"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/key"
+        },
+        "label": {
+          "$ref": "#/$defs/label"
+        },
+        "gestures": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/gesture"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "id",
+        "ready",
+        "availability"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identity"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable",
+            "unknown"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "load": {
+      "type": "object",
+      "required": [
+        "entity_id",
+        "domain",
+        "state",
+        "available"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string",
+          "pattern": "^(switch|input_boolean|light)\\.[a-z0-9_]+$"
+        },
+        "domain": {
+          "enum": [
+            "switch",
+            "input_boolean",
+            "light"
+          ]
+        },
+        "state": {
+          "enum": [
+            "on",
+            "off",
+            "unknown",
+            "unavailable"
+          ]
+        },
+        "available": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "available": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "on",
+                  "off"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "domain": {
+                "const": "light"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "attributes"
+            ],
+            "properties": {
+              "attributes": {
+                "$ref": "#/$defs/light_attributes"
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "attributes": {
+      "type": "object",
+      "required": [
+        "bridge_contract_version",
+        "bridge_control_id",
+        "bridge_session_id",
+        "bridge_update_kind",
+        "bridge_buttons",
+        "bridge_sources",
+        "bridge_load"
+      ],
+      "properties": {
+        "bridge_contract_version": {
+          "type": "string",
+          "pattern": "^1\\.[0-9]+$"
+        },
+        "bridge_control_id": {
+          "$ref": "#/$defs/identity"
+        },
+        "bridge_session_id": {
+          "$ref": "#/$defs/identity"
+        },
+        "bridge_update_kind": {
+          "enum": [
+            "gesture",
+            "snapshot"
+          ]
+        },
+        "bridge_buttons": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/button"
+          }
+        },
+        "bridge_sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/source"
+          }
+        },
+        "bridge_load": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/load"
+            }
+          ]
+        },
+        "event_type": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/kind"
+            }
+          ]
+        },
+        "button_id": {
+          "$ref": "#/$defs/key"
+        },
+        "gesture_id": {
+          "$ref": "#/$defs/key"
+        },
+        "press_count": {
+          "$ref": "#/$defs/count"
+        },
+        "gesture_session_id": {
+          "$ref": "#/$defs/identity"
+        },
+        "gesture_sequence": {
+          "$ref": "#/$defs/count"
+        },
+        "gesture_event_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "gesture_occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "bridge_update_kind": {
+                "const": "gesture"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "event_type",
+              "button_id",
+              "gesture_id",
+              "gesture_session_id",
+              "gesture_sequence",
+              "gesture_event_id",
+              "gesture_occurred_at"
+            ],
+            "properties": {
+              "event_type": {
+                "$ref": "#/$defs/kind"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "gesture_event_id"
+            ]
+          },
+          "then": {
+            "required": [
+              "event_type",
+              "button_id",
+              "gesture_id",
+              "gesture_session_id",
+              "gesture_sequence",
+              "gesture_occurred_at"
+            ],
+            "properties": {
+              "event_type": {
+                "$ref": "#/$defs/kind"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "event_type": {
+                "type": "null"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "button_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "gesture_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "press_count"
+                  ]
+                },
+                {
+                  "required": [
+                    "gesture_session_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "gesture_sequence"
+                  ]
+                },
+                {
+                  "required": [
+                    "gesture_occurred_at"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "event_type"
+            ],
+            "properties": {
+              "event_type": {
+                "const": "press"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "press_count"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "press_count"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "bridge_load": {
+                "type": "object",
+                "required": [
+                  "domain"
+                ],
+                "properties": {
+                  "domain": {
+                    "const": "light"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "bridge_contract_version": {
+                "pattern": "^1\\.(0*[1-9][0-9]*)$"
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "light_attributes": {
+      "type": "object",
+      "properties": {
+        "supported_color_modes": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "onoff",
+              "brightness",
+              "color_temp",
+              "hs",
+              "xy",
+              "rgb",
+              "rgbw",
+              "rgbww",
+              "white"
+            ]
+          }
+        },
+        "supported_features": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "brightness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

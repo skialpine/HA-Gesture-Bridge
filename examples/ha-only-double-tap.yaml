@@ -1,0 +1,18 @@
+automation:
+  - alias: Office top double tap
+    triggers:
+      - trigger: state
+        entity_id: event.office_scene_control
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state is not none and trigger.from_state is not none
+             and trigger.to_state.state != trigger.from_state.state
+             and trigger.to_state.attributes.get('bridge_update_kind') == 'gesture'
+             and trigger.to_state.attributes.get('gesture_session_id') == trigger.to_state.attributes.get('bridge_session_id')
+             and trigger.to_state.attributes.get('button_id') == 'top'
+             and trigger.to_state.attributes.get('event_type') == 'press'
+             and trigger.to_state.attributes.get('press_count') == 2 }}
+    actions:
+      - action: scene.turn_on
+        target: {entity_id: scene.office_evening}

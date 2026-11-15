@@ -1,0 +1,26 @@
+automation:
+  - alias: Office reported holds through DeviceSide
+    triggers:
+      - trigger: state
+        entity_id: event.office_scene_control
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state is not none and trigger.from_state is not none
+             and trigger.to_state.state != trigger.from_state.state
+             and trigger.to_state.attributes.get('bridge_update_kind') == 'gesture'
+             and trigger.to_state.attributes.get('gesture_session_id') == trigger.to_state.attributes.get('bridge_session_id') }}
+    actions:
+      - choose:
+          - conditions: "{{ trigger.to_state.attributes.get('event_type') == 'hold_start' and trigger.to_state.attributes.get('button_id') == 'top' }}"
+            sequence:
+              - action: deviceside.raise_brightness
+                target: {entity_id: light.office}
+          - conditions: "{{ trigger.to_state.attributes.get('event_type') == 'hold_start' and trigger.to_state.attributes.get('button_id') == 'bottom' }}"
+            sequence:
+              - action: deviceside.lower_brightness
+                target: {entity_id: light.office}
+          - conditions: "{{ trigger.to_state.attributes.get('event_type') == 'release' }}"
+            sequence:
+              - action: deviceside.stop
+                target: {entity_id: light.office}

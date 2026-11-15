@@ -1,0 +1,26 @@
+# Replace only the existing ha_gesture_bridge entry with the same unique_id.
+# Preserve other event platforms/entries in HA configuration.
+event:
+  - platform: ha_gesture_bridge
+    unique_id: office_scene_control
+    name: Office Scene Control
+    load_entity_id: switch.office
+    buttons:
+      - id: top
+        label: Top
+        source_entity_id: event.office_top
+        actions:
+          KeyPressed: {kind: press, press_count: 1}
+          KeyPressed2x: {kind: press, press_count: 2}
+          KeyPressed3x: {kind: press, press_count: 3}
+          KeyHeldDown: {kind: hold_start}
+          KeyReleased: {kind: release}
+      - id: bottom
+        label: Bottom
+        source_entity_id: event.office_bottom
+        actions:
+          KeyPressed: {kind: press, press_count: 1}
+          KeyPressed2x: {kind: press, press_count: 2}
+          KeyPressed3x: {kind: press, press_count: 3}
+          KeyHeldDown: {kind: hold_start}
+          KeyReleased: {kind: release}
