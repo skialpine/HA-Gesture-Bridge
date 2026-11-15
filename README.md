@@ -4,6 +4,10 @@ Normalize physical switch, dimmer and remote gestures into one Home Assistant ev
 
 This separate integration derives from a clone of the skialpine DeviceSide fork. The Git history and MIT attribution are preserved, and source adapters remain modular for a possible later DeviceSide contribution. See [ancestry and ownership](UPSTREAM.md).
 
+## Run alongside DeviceSide
+
+Both integrations can be installed at once. DeviceSide retains its `deviceside` domain and command services; this integration owns `ha_gesture_bridge` controls, events and its catalog. It does not register or remove DeviceSide services, patch DeviceSide, run dimming loops or automatically operate linked loads. They interact only through automations you explicitly configure. Avoid assigning the same gesture/load response in two automations if you want only one action.
+
 ## Install
 
 Requires **Home Assistant 2026.11.1 or newer**. This is a development integration; fixture coverage and hardware evidence are listed separately below.
