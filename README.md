@@ -48,11 +48,15 @@ Delivery is live and best effort. Gestures during an outage are not replayed. Mi
 
 [Examples](docs/automations.md) show double-tap scene handling and separate hold/release automations calling DeviceSide's `raise_brightness`, `lower_brightness` and `stop` for supported targets. DeviceSide remains optional; installing this bridge does not extend its device compatibility. For a light already represented in Control4, the C4 consumer can instead forward through its Button Link connections.
 
+## Latency diagnostics
+
+Optional receiver acknowledgments measure a publish-to-ack round trip on HA's monotonic clock, while retaining HA/C4 timestamps for log correlation. Normal operation sends no acknowledgments. See [latency diagnostics](docs/latency.md) for activation, measurement limits and the action contract.
+
 ## Compatibility evidence
 
 | Interface | Automated evidence | Physical evidence |
 | --- | --- | --- |
-| Native HA event entities | Repeated presses, separate/shared sources, restore, availability and linked-load snapshots | CHV Zooz ZEN76 upper double/triple reached the original HA proof; expanded UI/mappings not yet live-qualified |
+| Native HA event entities | Repeated presses, separate/shared sources, restore, availability and linked-load snapshots | CHV Zooz ZEN76: original upper double/triple HA proof; expanded UI control now reaches C4 Dimmer for top/bottom singles, holds/releases and bottom double-tap programming |
 | Z-Wave Central Scene | Manufacturer-independent action/filter fixtures | Pending |
 | ZHA | Explicit command/argument fixtures | Pending |
 | MQTT / Zigbee2MQTT | Fresh/retained messages, payload mapping and availability fixtures | Pending |

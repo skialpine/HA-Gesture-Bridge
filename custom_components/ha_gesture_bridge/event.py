@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util
 
 from .config import CONTRACT_VERSION, DOMAIN, NativeControlConfig
 from .sources import SourceAdapter
+from .latency import async_setup_latency
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ class GestureBridgeEvent(EventEntity):
                 "bridge_session_id": self._session_id, "bridge_update_kind": self._update_kind,
                 "bridge_buttons": self.config.buttons(), "bridge_sources": sources,
                 "bridge_load": self._load_snapshot(), "bridge_unmapped_count": self._unmapped_count,
-                "bridge_error_count": self._error_count}
+                "bridge_error_count": self._error_count, "bridge_acknowledgment_supported": True}
 
     def _load_snapshot(self) -> dict[str, Any] | None:
         if (target := self.config.load_entity_id) is None:
@@ -139,6 +140,13 @@ class GestureBridgeEvent(EventEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        # HA re-adds the same Entity object during an entity-ID rename. Its
+        # old adapters have been closed by removal callbacks; discard them so
+        # readiness metadata and ownership checks contain only live adapters.
+        self._adapters.clear()
+        tracker = async_setup_latency(self.hass)
+        tracker.register(self)
+        self.async_on_remove(lambda: tracker.unregister(self))
         for source_config in self.config.runtime_sources():
             if source_config.source_entity_id == self.entity_id:
                 raise ValueError("A control cannot consume its own aggregate entity")
@@ -204,6 +212,7 @@ class GestureBridgeEvent(EventEntity):
                       "gesture_session_id": self._session_id, "gesture_sequence": self._sequence,
                       "gesture_event_id": f"{self._session_id}:{self._sequence}",
                       "gesture_occurred_at": dt_util.utcnow().isoformat(timespec="milliseconds")}
+        async_setup_latency(self.hass).published(self, self._sequence, attributes["gesture_occurred_at"])
         if gesture.press_count is not None:
             attributes["press_count"] = gesture.press_count
         self._trigger_event(gesture.kind, attributes)

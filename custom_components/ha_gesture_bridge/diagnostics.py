@@ -113,4 +113,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry) -> dict
             "source_errors": source_errors, "unmapped_actions": unmapped_count,
             "errors": error_count,
         },
+        "latency": {
+            "measurement": "HA publish to acknowledgment round trip; not one-way latency",
+            "latest_latency_samples": runtime["latency"].diagnostics(unique_controls)
+            if isinstance(runtime, dict) and runtime.get("latency") else [],
+        },
     }

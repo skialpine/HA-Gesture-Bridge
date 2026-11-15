@@ -11,6 +11,7 @@ from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er
 
 from .config import DOMAIN, NativeControlConfig
+from .latency import async_setup_latency
 
 PLATFORMS = [Platform.EVENT, Platform.SENSOR]
 
@@ -41,6 +42,7 @@ def enrich_native_sources(hass: HomeAssistant, data: dict) -> dict:
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Retain the optional existing YAML event platform."""
     hass.data.setdefault(DOMAIN, {}).setdefault("yaml_controls", {})
+    async_setup_latency(hass)
     return True
 
 

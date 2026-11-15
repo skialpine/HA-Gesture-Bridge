@@ -108,3 +108,7 @@ uv pip install --python .venv/bin/python -r requirements-test.txt
 The fixture generator is `python -m tools.generate_gesture_fixtures`. Fixture tests
 cover missing fields, wrong types, inconsistent session/event IDs, duplicate
 capabilities, invalid load targets, restored history, and repeated presses.
+
+## Optional acknowledgment capability
+
+HA Gesture Bridge 0.1.1 adds the optional boolean attribute `bridge_acknowledgment_supported: true`. It does not change gesture identity or contract versions 1.0/1.1. A receiver may use the [diagnostic acknowledgment action](latency.md) only when explicitly enabled. Acknowledgments do not produce gesture/state publications or load commands; gesture validity never depends on clocks agreeing or an acknowledgment succeeding.

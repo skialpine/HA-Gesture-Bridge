@@ -16,7 +16,7 @@ def test_deterministic_standalone_package(tmp_path):
         assert manifest["config_flow"] is True
         assert "deviceside" not in manifest.get("dependencies", [])
         assert manifest["requirements"] == []
-        for name in ["config_flow.py", "event.py", "sensor.py", "diagnostics.py", "strings.json", "translations/en.json", "brand/icon.png"]:
+        for name in ["config_flow.py", "event.py", "sensor.py", "diagnostics.py", "latency.py", "services.yaml", "strings.json", "translations/en.json", "brand/icon.png"]:
             assert "ha_gesture_bridge/" + name in expected
     hacs = json.loads((ROOT / "hacs.json").read_text())
     assert hacs["name"] == "HA Gesture Bridge"

@@ -1,0 +1,63 @@
+acknowledge:
+  name: Acknowledge gesture
+  description: >-
+    Diagnostic acknowledgment of a fresh gesture. Measures an HA-clock round
+    trip without controlling a load or publishing another gesture. Intended for
+    receivers with explicitly enabled latency diagnostics.
+  fields:
+    entity_id:
+      name: Gesture control
+      required: true
+      selector:
+        entity:
+          integration: ha_gesture_bridge
+          domain: event
+    bridge_session_id:
+      name: Current bridge session
+      required: true
+      selector:
+        text:
+    gesture_sequence:
+      name: Gesture sequence
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 9007199254740991
+          mode: box
+    receiver:
+      name: Receiver identity
+      required: true
+      selector:
+        text:
+    c4_received_epoch_ms:
+      name: C4 receive UTC epoch milliseconds
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 9007199254740991
+          mode: box
+    c4_processed_epoch_ms:
+      name: C4 processed UTC epoch milliseconds
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 9007199254740991
+          mode: box
+    c4_forwarded_epoch_ms:
+      name: C4 forwarded UTC epoch milliseconds
+      selector:
+        number:
+          min: 0
+          max: 9007199254740991
+          mode: box
+    c4_processing_ms:
+      name: C4 processing milliseconds
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 60000
+          mode: box
