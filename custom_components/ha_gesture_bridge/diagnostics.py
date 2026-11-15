@@ -54,7 +54,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry) -> dict
     for data in controls:
         identity = data.get("unique_id")
         if isinstance(identity, str):
-            unique_controls[identity] = data
+            # UI subentries are current; retained YAML is only a fallback for
+            # controls not managed by the installation entry.
+            unique_controls.setdefault(identity, data)
         else:
             unidentified.append(data)
     controls = [*unique_controls.values(), *unidentified]

@@ -3,10 +3,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import json
 import logging
-from pathlib import Path
 import shutil
-import subprocess
-import os
 
 from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.components.event import EventEntity
@@ -22,15 +19,6 @@ from tools.validate_gesture_contract import validate_state
 SOURCE = "event.fixture_paddle"
 LOAD = "switch.fixture_load"
 
-
-def consumer_root():
-    checkout = os.environ.get("C4_HA_SWITCH_CHECKOUT")
-    if not checkout:
-        pytest.skip("Set C4_HA_SWITCH_CHECKOUT to run optional C4 consumer checks")
-    root = Path(checkout).resolve()
-    if not (root / "module/gestures.lua").is_file():
-        pytest.fail("C4_HA_SWITCH_CHECKOUT does not contain the gesture consumer")
-    return root
 
 CONFIG = {
     "platform": "ha_gesture_bridge",
@@ -280,7 +268,7 @@ async def test_setup_rejects_invalid_mapping(hass):
 
 @pytest.mark.parametrize("runtime", ["luajit", "lua"])
 @pytest.mark.parametrize("entrypoint", ["tests/lua/test_gestures.lua", "tests/controller/test_switch_driver.lua"])
-async def test_real_ha_publications_pass_through_lua_proxy_decoder(hass, ready_sources, tmp_path, runtime, entrypoint):
+async def test_real_ha_publications_pass_through_lua_proxy_decoder(hass, ready_sources, tmp_path, runtime, entrypoint, run_consumer):
     executable = shutil.which(runtime)
     if executable is None:
         pytest.skip(f"Install {runtime} to run the cross-runtime contract check")
@@ -314,9 +302,5 @@ async def test_real_ha_publications_pass_through_lua_proxy_decoder(hass, ready_s
     suite["cases"].append({"name": "real_delayed_old_rest_response", "delivery": "state", "state": old_live, "expected_event": None})
     path = tmp_path / "ha-produced-suite.json"
     path.write_text(json.dumps(suite))
-    root = consumer_root()
-    result = await hass.async_add_executor_job(
-        lambda: subprocess.run([executable, entrypoint, str(path)], cwd=root, capture_output=True, text=True, timeout=15)
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+    result = await run_consumer(executable, entrypoint, path)
     assert "9 states, 3 fired gestures" in result.stdout

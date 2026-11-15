@@ -56,9 +56,10 @@ class SourceAdapter:
     publishes metadata only; idle(adapter) clears local hold bookkeeping only.
     """
 
-    def __init__(self, hass, config: SourceConfig, notify, status, idle, unmapped) -> None:
+    def __init__(self, hass, config: SourceConfig, notify, status, idle, unmapped, can_bind_native=None) -> None:
         self.hass, self.config = hass, config
         self.notify, self.status, self.idle, self.unmapped = notify, status, idle, unmapped
+        self.can_bind_native = can_bind_native
         self.ready = False
         self.availability = "unknown"
         self.error = None
@@ -134,8 +135,11 @@ class SourceAdapter:
     @callback
     def _native_rebound(self, entity_id, state, initial, old_entity_id):
         self.idle(self)
-        self._native_status(state, initial=initial)
         self._watermark = timestamp(state)
+        if entity_id and self.can_bind_native is not None and not self.can_bind_native(self, entity_id):
+            self._set_status(False, "unavailable", "duplicate_native_source", publish=not initial)
+            return False
+        self._native_status(state, initial=initial)
         if not initial:
             self.status(self)
         return not (state is not None and "bridge_contract_version" in state.attributes)
@@ -164,6 +168,10 @@ class SourceAdapter:
     @callback
     def _bus(self, event):
         if self._closed or event.time_fired < self._started:
+            return
+        # Also protect the runtime boundary against hand-built declarations.
+        # A state publication is metadata, never a generic physical input.
+        if self.config.type == "bus" and event.event_type == "state_changed":
             return
         data = dict(event.data)
         if self.config.type == "zwave_js":

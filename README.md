@@ -12,9 +12,11 @@ Both integrations can be installed at once. DeviceSide retains its `deviceside` 
 
 Requires **Home Assistant 2026.11.1 or newer**. This is a development integration; fixture coverage and hardware evidence are listed separately below.
 
-### Marketplace / HACS custom repository
+### Marketplace custom repository
 
-Add `https://github.com/skialpine/HA-Gesture-Bridge` as a custom repository of type **Integration**, download **HA Gesture Bridge**, then restart Home Assistant. Go to **Settings > Devices & services > Add integration > HA Gesture Bridge**.
+Open **Settings > Marketplace > Add from link**, enter `https://github.com/skialpine/HA-Gesture-Bridge`, and install **HA Gesture Bridge**. Follow any restart request, then open **Settings > Devices & services > Add integration > HA Gesture Bridge**. Updating an already loaded development copy requires an HA restart to activate its new code.
+
+The repository metadata is still named `hacs.json`; Marketplace retains that filename.
 
 It is a custom repository, not a claim of inclusion in the default Marketplace catalog. Native C4 discovery and ordinary direct switch/dimmer control continue to work without this integration.
 

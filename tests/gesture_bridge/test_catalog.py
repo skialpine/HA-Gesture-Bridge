@@ -1,13 +1,20 @@
 """Catalog behavior against actual HA registries and entity lifecycle."""
 
 from copy import deepcopy
+import json
 import logging
+from unittest.mock import Mock
 
+from homeassistant.components.recorder.db_schema import MAX_STATE_ATTRS_BYTES, StateAttributes
 from homeassistant.config_entries import SOURCE_USER
+from homeassistant.core import EVENT_STATE_CHANGED
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_component import EntityComponent
 
-from custom_components.ha_gesture_bridge.config import DOMAIN
+from custom_components.ha_gesture_bridge.config import DOMAIN, NativeControlConfig
+from custom_components.ha_gesture_bridge.event import GestureBridgeEvent
+from custom_components.ha_gesture_bridge import sensor as sensor_module
 from custom_components.ha_gesture_bridge.sensor import GestureCatalogSensor, build_catalog
 
 
@@ -181,18 +188,99 @@ async def test_device_area_association_entity_override_and_disabled_device(hass)
     assert build_catalog(hass) == []
 
 
-async def test_load_metadata_churn_does_not_change_revision_or_emit_gestures(hass):
+async def test_load_metadata_churn_does_not_rebuild_catalog_or_emit_gestures(hass, monkeypatch):
     item = register(hass, "light", "brightness", supported_features=32,
         capabilities={"supported_color_modes": ["brightness"]})
+    source = register(hass, "event", "native_paddle")
     hass.states.async_set(item.entity_id, "on", {"brightness": 1})
+    hass.states.async_set(source.entity_id, "unknown", {"event_type": None})
+    aggregate = GestureBridgeEvent(NativeControlConfig.parse({
+        "unique_id": "catalog-control", "name": "Catalog Control",
+        "source_entity_id": source.entity_id, "load_entity_id": item.entity_id,
+        "actions": {"double": {"kind": "press", "press_count": 2}},
+    }))
+    events = EntityComponent(logging.getLogger(__name__), "event", hass)
+    await events.async_add_entities([aggregate])
+    register(hass, "event", aggregate.entity_id.split(".", 1)[1], platform=DOMAIN)
+    await hass.async_block_till_done()
     _, catalog = await add_catalog(hass)
     before = catalog.extra_state_attributes
-    assert before["catalog_entities"][0]["attributes"]["supported_features"] == 32
-    gestures = []
-    remove = hass.bus.async_listen("ha_gesture_bridge_gesture", lambda event: gestures.append(event))
+    load = next(row for row in before["catalog_entities"] if row["entity_id"] == item.entity_id)
+    assert load["attributes"]["supported_features"] == 32
+    rebuild = Mock(wraps=build_catalog)
+    monkeypatch.setattr(sensor_module, "build_catalog", rebuild)
+
+    # A genuine physical input establishes an occurrence to protect from replay.
+    hass.states.async_set(source.entity_id, dt_util.utcnow().isoformat(), {"event_type": "double"})
+    await hass.async_block_till_done()
+    first = hass.states.get(aggregate.entity_id)
+    assert first.attributes["gesture_sequence"] == 1
+    assert first.attributes["bridge_update_kind"] == "gesture"
     hass.states.async_set(item.entity_id, "on", {"brightness": 230, "last_seen": "later", "private": "hidden"})
     hass.states.async_set("sensor.unrelated", "31")
     await hass.async_block_till_done()
-    remove()
     assert catalog.extra_state_attributes["catalog_revision"] == before["catalog_revision"]
-    assert gestures == []
+    rebuild.assert_not_called()
+    current = hass.states.get(aggregate.entity_id)
+    assert current.attributes["bridge_update_kind"] == "snapshot"
+    assert current.state == first.state
+    assert current.attributes["gesture_sequence"] == first.attributes["gesture_sequence"]
+    assert current.attributes["gesture_event_id"] == first.attributes["gesture_event_id"]
+
+    # A real catalog refresh changes metadata without creating a new occurrence.
+    er.async_get(hass).async_update_entity(item.entity_id, name="Updated Light")
+    await hass.async_block_till_done()
+    assert catalog.extra_state_attributes["catalog_revision"] != before["catalog_revision"]
+    assert rebuild.called
+    current = hass.states.get(aggregate.entity_id)
+    assert current.state == first.state
+    assert current.attributes["gesture_sequence"] == first.attributes["gesture_sequence"]
+    assert current.attributes["gesture_event_id"] == first.attributes["gesture_event_id"]
+
+
+async def test_state_filter_preserves_names_capabilities_availability_and_removal(hass):
+    item = register(hass, "light", "changing")
+    hass.states.async_set(item.entity_id, "on", {"supported_color_modes": ["brightness"]})
+    _, catalog = await add_catalog(hass)
+    assert catalog.extra_state_attributes["catalog_entities"][0]["kind"] == "dimmer"
+    hass.states.async_set(item.entity_id, "off", {
+        "friendly_name": "Renamed Light", "supported_color_modes": ["onoff"], "supported_features": 32,
+    })
+    await hass.async_block_till_done()
+    row = catalog.extra_state_attributes["catalog_entities"][0]
+    assert row["friendly_name"] == "Renamed Light"
+    assert row["kind"] == "switch" and row["state"] == "off"
+    assert row["attributes"] == {"supported_color_modes": ["onoff"], "supported_features": 32}
+    for value, attrs, availability in (("unknown", {}, "unknown"), ("unknown", {"restored": True}, "unavailable"),
+                                       ("on", {}, "available")):
+        hass.states.async_set(item.entity_id, value, attrs)
+        await hass.async_block_till_done()
+        assert catalog.extra_state_attributes["catalog_entities"][0]["availability"] == availability
+    hass.states.async_remove(item.entity_id)
+    await hass.async_block_till_done()
+    row = catalog.extra_state_attributes["catalog_entities"][0]
+    assert row["state"] == row["availability"] == "unknown" and row["available"] is None
+
+
+async def test_catalog_rows_remain_live_but_are_excluded_by_actual_recorder_encoder(hass, caplog):
+    for index in range(100):
+        item = register(hass, "switch", f"load_{index}")
+        hass.states.async_set(item.entity_id, "off", {"friendly_name": f"Room {index} Switch"})
+    await hass.async_block_till_done()
+    changes = []
+    remove = hass.bus.async_listen(EVENT_STATE_CHANGED, changes.append)
+    _, catalog = await add_catalog(hass)
+    remove()
+    state = hass.states.get(catalog.entity_id)
+    assert state.state == "100"
+    assert len(state.attributes["catalog_entities"]) == 100
+    assert len(json.dumps(dict(state.attributes)).encode()) > MAX_STATE_ATTRS_BYTES
+    change = next(event for event in changes if event.data["entity_id"] == catalog.entity_id)
+    with caplog.at_level(logging.WARNING, logger="homeassistant.components.recorder.db_schema"):
+        encoded = StateAttributes.shared_attrs_bytes_from_event(change, None)
+    recorded = json.loads(encoded)
+    assert 0 < len(encoded) < MAX_STATE_ATTRS_BYTES
+    assert "catalog_entities" not in recorded
+    assert recorded["catalog_revision"] == state.attributes["catalog_revision"]
+    assert recorded["catalog_contract_version"] == "1.0"
+    assert "exceed maximum size" not in caplog.text

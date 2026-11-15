@@ -36,7 +36,7 @@ HA's existing MQTT integration supplies authentication and the broker connection
 
 ## Other HA bus events
 
-Use `type: bus`, an exact `event_type` and an identity `filters` map. This can represent Wi-Fi, Bluetooth or another integration that exposes button events. Avoid subscribing to a second representation of an already configured physical input. Generic `state_changed` sources are refused to prevent aggregate feedback cycles.
+Use `type: bus`, an exact `event_type` and an identity `filters` map. This can represent Wi-Fi, Bluetooth or another integration that exposes button events. Avoid subscribing to a second representation of an already configured physical input. Generic `state_changed` sources and wildcard (`*`) event subscriptions are refused to prevent aggregate feedback cycles.
 
 ## Holds and lifecycle
 

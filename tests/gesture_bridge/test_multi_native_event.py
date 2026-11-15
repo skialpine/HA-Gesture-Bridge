@@ -3,9 +3,6 @@ from copy import deepcopy
 import json
 import logging
 import shutil
-import subprocess
-import os
-from pathlib import Path
 
 from homeassistant.components.event import EventEntity
 from homeassistant.helpers.entity_component import EntityComponent
@@ -15,16 +12,6 @@ from custom_components.ha_gesture_bridge.config import NativeControlConfig
 from custom_components.ha_gesture_bridge.event import GestureBridgeEvent, PLATFORM_SCHEMA, async_setup_platform
 from tools.validate_gesture_contract import validate_state
 
-
-
-def consumer_root():
-    checkout = os.environ.get("C4_HA_SWITCH_CHECKOUT")
-    if not checkout:
-        pytest.skip("Set C4_HA_SWITCH_CHECKOUT to run optional C4 consumer checks")
-    root = Path(checkout).resolve()
-    if not (root / "module/gestures.lua").is_file():
-        pytest.fail("C4_HA_SWITCH_CHECKOUT does not contain the gesture consumer")
-    return root
 
 TOP = "event.upper_office_paddle"
 BOTTOM = "event.lower_office_paddle"
@@ -207,7 +194,7 @@ async def test_removal_cleans_both_sources_load_and_hold_state(hass):
     await bottom.press("KeyHeldDown")
     before = entity._sequence
     await entity.async_remove()
-    assert not any(source.held for source in entity._sources.values())
+    assert not entity._held_buttons
     await top.press("KeyReleased")
     await bottom.press("KeyPressed3x")
     hass.states.async_set(LOAD, "on")
@@ -246,7 +233,7 @@ async def test_bad_source_clears_only_its_hold_and_other_button_stays_usable(has
     await hass.async_block_till_done()
     status = {source["button_id"]: source for source in wire(hass, entity)["attributes"]["bridge_sources"]}
     assert not status["top"]["ready"] and "aggregate cannot" in status["top"]["error"]
-    assert status["bottom"]["ready"] and not entity._sources[TOP].held
+    assert status["bottom"]["ready"] and "top" not in entity._held_buttons
     assert entity._sequence == 1
     await bottom.press("KeyPressed2x")
     assert wire(hass, entity)["attributes"]["button_id"] == "bottom" and entity._sequence == 2
@@ -255,7 +242,7 @@ async def test_bad_source_clears_only_its_hold_and_other_button_stays_usable(has
 
 
 @pytest.mark.parametrize("runtime", ["luajit", "lua"])
-async def test_multi_source_publications_pass_actual_lua_decoder(hass, tmp_path, runtime):
+async def test_multi_source_publications_pass_actual_lua_decoder(hass, tmp_path, runtime, run_consumer):
     executable = shutil.which(runtime)
     if executable is None:
         pytest.skip(f"Install {runtime} to check the C4 boundary")
@@ -276,7 +263,7 @@ async def test_multi_source_publications_pass_actual_lua_decoder(hass, tmp_path,
     capture()
     path = tmp_path / "multi-native.json"
     path.write_text(json.dumps(suite))
-    subprocess.run([executable, "tests/lua/test_gestures.lua", str(path)], cwd=consumer_root(), check=True, capture_output=True, text=True)
+    await run_consumer(executable, "tests/lua/test_gestures.lua", path)
 
 
 @pytest.mark.parametrize("lost_state", ["unknown", "invalid-timestamp"])
@@ -290,14 +277,14 @@ async def test_lost_event_tracking_invalidates_only_that_source_hold(hass, lost_
     # A duplicate/attribute-only source update must not clear an active hold.
     hass.states.async_set(TOP, source.state, {"event_type": "KeyHeldDown", "metadata": True})
     await hass.async_block_till_done()
-    assert entity._sources[TOP].held and entity._sequence == 1
+    assert "top" in entity._held_buttons and entity._sequence == 1
     hass.states.async_set(TOP, lost_state)
     await hass.async_block_till_done()
     lost = wire(hass, entity)
     statuses = {source["button_id"]: source for source in lost["attributes"]["bridge_sources"]}
     assert statuses["top"]["ready"] is False and statuses["top"]["availability"] == "unknown"
     assert statuses["bottom"]["ready"] is True
-    assert not entity._sources[TOP].held
+    assert "top" not in entity._held_buttons
     assert lost["state"] == held["state"]
     assert lost["attributes"]["gesture_event_id"] == held["attributes"]["gesture_event_id"]
     assert lost["attributes"]["event_type"] == "hold_start" and entity._sequence == 1
@@ -311,7 +298,7 @@ async def test_lost_event_tracking_invalidates_only_that_source_hold(hass, lost_
 
 
 @pytest.mark.parametrize("runtime", ["luajit", "lua"])
-async def test_real_ha_sources_drive_actual_switch_button_links(hass, tmp_path, runtime):
+async def test_real_ha_sources_drive_actual_switch_button_links(hass, tmp_path, runtime, run_consumer):
     executable = shutil.which(runtime)
     if executable is None:
         pytest.skip(f"Install {runtime} to check actual Switch outputs")
@@ -346,5 +333,4 @@ async def test_real_ha_sources_drive_actual_switch_button_links(hass, tmp_path, 
     capture("top/release", ((200, "DO_RELEASE"),))
     path = tmp_path / "real-native-controller.json"
     path.write_text(json.dumps(suite))
-    subprocess.run([executable, "tests/controller/test_switch_driver.lua", str(path), "controller"],
-                   cwd=consumer_root(), check=True, capture_output=True, text=True)
+    await run_consumer(executable, "tests/controller/test_switch_driver.lua", path, "controller")

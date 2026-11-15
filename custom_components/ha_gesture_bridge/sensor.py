@@ -127,52 +127,58 @@ def _availability(state: State | None, *, gesture: bool = False,
 
 
 @callback
+def _catalog_row(hass: HomeAssistant, entry: er.RegistryEntry, state: State | None) -> dict[str, Any] | None:
+    """Project one entity identically for discovery and change filtering."""
+    devices, areas = dr.async_get(hass), ar.async_get(hass)
+    domain = entry.entity_id.split(".", 1)[0]
+    if entry.disabled_by is not None or domain not in _STATE_DOMAINS:
+        return None
+    attrs = dict(state.attributes) if state else {}
+    projected: dict[str, Any] = {}
+    if domain in {"switch", "input_boolean"}:
+        kind = "switch"
+    elif domain == "light":
+        # Registry capability data remains useful when a light is unavailable.
+        capabilities = {"supported_features": entry.supported_features, **(entry.capabilities or {}), **attrs}
+        projected = _light_attributes(capabilities)
+        kind = "dimmer" if _DIMMABLE_MODES.intersection(projected.get("supported_color_modes", [])) else "switch"
+    else:
+        if entry.platform != DOMAIN or (projected := _bridge_attributes(attrs)) is None:
+            return None
+        kind = "gesture"
+    device = devices.async_get(entry.device_id) if entry.device_id else None
+    if device and device.disabled_by is not None:
+        return None
+    area_id = entry.area_id or (device.area_id if device else None)
+    area = areas.async_get_area(area_id) if area_id else None
+    name = attrs.get("friendly_name") or entry.name or entry.original_name
+    if not isinstance(name, str) or not name.strip():
+        name = (device.name_by_user or device.name) if device else entry.entity_id
+    availability, available = _availability(state, gesture=kind == "gesture",
+                                           sources=projected.get("bridge_sources"))
+    ready = (availability != "unavailable" and any(source["ready"] for source in projected.get("bridge_sources", []))) if kind == "gesture" else available
+    state_value = state.state if state and state.state in ("on", "off", "unknown", "unavailable") else "unknown"
+    if kind == "gesture":
+        state_value = "ready" if ready else "unavailable" if availability == "unavailable" else "unknown"
+    row = {"entity_id": entry.entity_id, "domain": domain, "kind": kind,
+           "friendly_name": name or entry.entity_id, "area_name": area.name if area else None,
+           "device_id": entry.device_id, "state": state_value,
+           "availability": availability, "available": available, "ready": ready, "attributes": projected}
+    if kind == "gesture":
+        row["bridge_control_id"] = projected["bridge_control_id"]
+        load = projected["bridge_load"]
+        row["load_entity_id"] = load["entity_id"] if load else None
+        row["load_domain"] = load["domain"] if load else None
+    return row
+
+
+@callback
 def build_catalog(hass: HomeAssistant) -> list[dict[str, Any]]:
     """Return deterministic eligible entity records without loading any adapter."""
-    entities, devices, areas = er.async_get(hass), dr.async_get(hass), ar.async_get(hass)
-    rows: list[dict[str, Any]] = []
-    for entry in entities.entities.values():
-        domain = entry.entity_id.split(".", 1)[0]
-        if entry.disabled_by is not None or domain not in _STATE_DOMAINS:
-            continue
-        state = hass.states.get(entry.entity_id)
-        attrs = dict(state.attributes) if state else {}
-        projected: dict[str, Any] = {}
-        if domain in {"switch", "input_boolean"}:
-            kind = "switch"
-        elif domain == "light":
-            # Registry capability data remains useful when a light is unavailable.
-            capabilities = {"supported_features": entry.supported_features, **(entry.capabilities or {}), **attrs}
-            projected = _light_attributes(capabilities)
-            kind = "dimmer" if _DIMMABLE_MODES.intersection(projected.get("supported_color_modes", [])) else "switch"
-        else:
-            if entry.platform != DOMAIN or (projected := _bridge_attributes(attrs)) is None:
-                continue
-            kind = "gesture"
-        device = devices.async_get(entry.device_id) if entry.device_id else None
-        if device and device.disabled_by is not None:
-            continue
-        area_id = entry.area_id or (device.area_id if device else None)
-        area = areas.async_get_area(area_id) if area_id else None
-        name = attrs.get("friendly_name") or entry.name or entry.original_name
-        if not isinstance(name, str) or not name.strip():
-            name = (device.name_by_user or device.name) if device else entry.entity_id
-        availability, available = _availability(state, gesture=kind == "gesture",
-                                               sources=projected.get("bridge_sources"))
-        ready = (availability != "unavailable" and any(source["ready"] for source in projected.get("bridge_sources", []))) if kind == "gesture" else available
-        state_value = state.state if state and state.state in ("on", "off", "unknown", "unavailable") else "unknown"
-        if kind == "gesture":
-            state_value = "ready" if ready else "unavailable" if availability == "unavailable" else "unknown"
-        row = {"entity_id": entry.entity_id, "domain": domain, "kind": kind,
-               "friendly_name": name or entry.entity_id, "area_name": area.name if area else None,
-               "device_id": entry.device_id, "state": state_value,
-               "availability": availability, "available": available, "ready": ready, "attributes": projected}
-        if kind == "gesture":
-            row["bridge_control_id"] = projected["bridge_control_id"]
-            load = projected["bridge_load"]
-            row["load_entity_id"] = load["entity_id"] if load else None
-            row["load_domain"] = load["domain"] if load else None
-        rows.append(row)
+    rows = []
+    for entry in er.async_get(hass).entities.values():
+        if (row := _catalog_row(hass, entry, hass.states.get(entry.entity_id))) is not None:
+            rows.append(row)
     return sorted(rows, key=lambda row: row["entity_id"])
 
 
@@ -188,6 +194,7 @@ class GestureCatalogSensor(SensorEntity):
     _attr_unique_id = CATALOG_UNIQUE_ID
     _attr_should_poll = False
     _attr_icon = "mdi:format-list-bulleted"
+    _unrecorded_attributes = frozenset({"catalog_entities"})
 
     def __init__(self) -> None:
         self._rows: list[dict[str, Any]] = []
@@ -218,7 +225,17 @@ class GestureCatalogSensor(SensorEntity):
 
     @callback
     def _state_changed(self, event: Event) -> None:
-        if event.data.get("entity_id", "").split(".", 1)[0] in _STATE_DOMAINS:
+        entity_id = event.data.get("entity_id", "")
+        if entity_id.split(".", 1)[0] not in _STATE_DOMAINS:
+            return
+        entry = er.async_get(self.hass).async_get(entity_id)
+        if entry is None or (entity_id.startswith("event.") and entry.platform != DOMAIN):
+            return
+        # Ignore volatile brightness, native event timestamps and gesture IDs.
+        # Reusing the catalog projection keeps every discovery field significant.
+        if _catalog_row(self.hass, entry, event.data.get("old_state")) != _catalog_row(
+            self.hass, entry, event.data.get("new_state")
+        ):
             self._refresh()
 
     async def async_added_to_hass(self) -> None:

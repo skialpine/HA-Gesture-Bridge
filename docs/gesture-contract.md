@@ -86,7 +86,7 @@ From the repository root:
 uv venv --python 3.14 .venv
 uv pip install --python .venv/bin/python -r requirements-test.txt
 .venv/bin/python -m tools.validate_gesture_contract
-.venv/bin/python -m pytest tests/test_contract.py
+.venv/bin/python -m pytest tests/gesture_bridge/test_contract.py
 ```
 
 The fixture generator is `python -m tools.generate_gesture_fixtures`. Fixture tests

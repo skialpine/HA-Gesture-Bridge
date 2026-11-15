@@ -46,6 +46,8 @@ A gesture control may stay HA-available while its upstream sources are lost. The
 
 Entity, device, and area registry updates and relevant state changes refresh the catalog. Refreshing never calls a device service, creates a gesture, or changes an aggregate's event identity. The revision excludes event timestamps, gesture sequences, occurrence IDs, raw source payloads, brightness, and arbitrary attributes. Repeated physical gestures therefore do not churn discovery metadata.
 
+The live `catalog_entities` list is excluded from Recorder history to avoid large attribute records. The sensor count, contract version and revision remain recordable. Consumers read the current sensor attributes for discovery.
+
 Keep manual exact entity ID entry available alongside a friendly-name picker. Show domain/area/ID where needed to disambiguate names, preserve unavailable existing selections, and refresh options from the catalog rather than silently replacing a selection. Treat capability and availability changes as metadata, never as button presses.
 
 The catalog contains household names and identifiers for authorized local discovery. Downloaded diagnostics intentionally contain only anonymous counts and fixed categories: configured control/source counts, source types, linked load domains, invalid control count, aggregate/source readiness and availability counts, unmapped action count, and error count. Diagnostics omit all household IDs/names, mappings, topics, payloads, credentials, arbitrary metadata, and raw error text.

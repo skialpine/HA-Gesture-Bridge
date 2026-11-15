@@ -234,20 +234,30 @@ class ControlSubentryFlow(ConfigSubentryFlow):
         candidates = {identity: record for identity, record in yaml_controls(self.hass).items() if identity not in existing}
         if not candidates:
             return self.async_abort(reason="no_yaml_controls")
+        errors = {}
+        selected = user_input.get("control") if user_input else None
         if user_input is not None:
-            identity = user_input.get("control")
-            if identity not in candidates:
-                return self.async_show_form(step_id="import_yaml", errors={"base": "invalid_mapping"})
-            data = clean_config(candidates[identity]["config"])
-            self._identity = identity
-            self._name = data["name"]
-            result = self._finish(data)
-            if result["type"] == "create_entry":
-                imported = list(entry.data.get("imported_yaml", []))
-                if identity not in imported:
-                    imported.append(identity)
-                    self.hass.config_entries.async_update_entry(entry, data=dict(entry.data) | {"imported_yaml": imported})
-            return result
+            if selected not in candidates:
+                errors["base"] = "invalid_mapping"
+            else:
+                try:
+                    data = clean_config(candidates[selected]["config"])
+                    self._identity = selected
+                    self._name = data["name"]
+                    result = self._finish(data)
+                except MQTTNotConfigured:
+                    errors["base"] = "mqtt_not_configured"
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    errors["base"] = "invalid_mapping"
+                else:
+                    if result["type"] == "create_entry":
+                        imported = list(entry.data.get("imported_yaml", []))
+                        if selected not in imported:
+                            imported.append(selected)
+                            self.hass.config_entries.async_update_entry(entry, data=dict(entry.data) | {"imported_yaml": imported})
+                    return result
+        field = vol.Required("control", default=selected) if selected in candidates else vol.Required("control")
         return self.async_show_form(step_id="import_yaml", data_schema=vol.Schema({
-            vol.Required("control"): selector.SelectSelector(selector.SelectSelectorConfig(options=[
-                {"value": identity, "label": record["config"]["name"]} for identity, record in candidates.items()]))}))
+            field: selector.SelectSelector(selector.SelectSelectorConfig(options=[
+                {"value": identity, "label": record["config"]["name"]} for identity, record in candidates.items()]))}),
+            errors=errors)

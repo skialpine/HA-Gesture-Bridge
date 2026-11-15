@@ -200,6 +200,25 @@ class NativeControlConfig:
     def buttons(self) -> list[dict[str, Any]]:
         return [button.capability() for button in self.inputs]
 
+    def runtime_sources(self) -> tuple[SourceConfig, ...]:
+        """Translate legacy declarations once; every input uses one runtime.
+
+        Keep the saved configuration shape and its existing identities intact.
+        Legacy wire source names are a presentation concern of the aggregate.
+        """
+        if self.source_configs:
+            return self.source_configs
+        return tuple(SourceConfig(
+            id=button.id,
+            type="native_event",
+            buttons=(button,),
+            mappings=tuple(SourceMapping(button.id, {"event_type": action}, gesture)
+                           for action, gesture in button.actions.items()),
+            filters={},
+            source_entity_id=button.source_entity_id,
+            source_registry_id=button.source_registry_id,
+        ) for button in self.inputs)
+
 
 @dataclass(frozen=True)
 class SourceMapping:
@@ -343,8 +362,8 @@ class SourceConfig:
         event_type = data.get("event_type")
         if kind == "bus":
             event_type = text(event_type, "bus event type")
-            if event_type == "state_changed":
-                raise ValueError("Use native_event for state sources; state_changed bus subscriptions are forbidden")
+            if event_type in {"state_changed", "*"}:
+                raise ValueError("Use native_event for state sources; state_changed and wildcard bus subscriptions are forbidden")
             if not filters:
                 raise ValueError("A generic bus source requires an explicit identity filter")
         elif event_type is not None:

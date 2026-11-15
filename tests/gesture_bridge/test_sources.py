@@ -5,10 +5,12 @@ state machine, dispatcher and MQTT ReceiveMessage model are real.
 """
 
 import asyncio
+from dataclasses import replace
 import json
 import logging
 
 from homeassistant.components.mqtt.models import ReceiveMessage
+from homeassistant.core import Event
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.util import dt as dt_util
@@ -16,7 +18,7 @@ import pytest
 
 from custom_components.ha_gesture_bridge.config import NativeControlConfig
 from custom_components.ha_gesture_bridge.event import GestureBridgeEvent
-from custom_components.ha_gesture_bridge.sources import matches
+from custom_components.ha_gesture_bridge.sources import SourceAdapter, matches
 from tools.validate_gesture_contract import validate_state
 
 
@@ -111,6 +113,27 @@ async def test_bus_declarative_paths_typed_filters_and_cleanup(hass):
     await fire(hass, "vendor_button", good)
     assert entity._sequence == 1
     assert not entity._held_buttons
+
+
+async def test_generic_bus_runtime_rejects_state_publications_even_if_config_is_bypassed(hass):
+    # A hand-built config bypasses the parser's '*' rejection. Keep the probe
+    # bounded: notify only records a call, rather than publishing another state.
+    source = bus(filters={"entity_id": "event.aggregate"},
+                 mappings=[mapping("top", {"entity_id": "event.aggregate"})])
+    config = NativeControlConfig.parse({"unique_id": "boundary", "name": "Boundary", "sources": [source]})
+    calls = []
+    adapter = SourceAdapter(hass, replace(config.source_configs[0], event_type="*"),
+                            lambda *args: calls.append(args), lambda _: None,
+                            lambda _: None, lambda *args, **kwargs: None)
+    await adapter.async_start()
+    try:
+        data = {"entity_id": "event.aggregate"}
+        adapter._bus(Event("state_changed", data))
+        assert not calls
+        await fire(hass, "vendor_button", data)
+        assert len(calls) == 1
+    finally:
+        adapter.close()
 
 
 async def test_zha_maps_only_explicit_device_command_and_args(hass):
@@ -261,7 +284,7 @@ async def test_mqtt_partial_subscription_failure_unsubscribes(hass, monkeypatch)
 
 
 @pytest.mark.parametrize("source", [
-    bus(filters={}), bus(event_type="state_changed"), bus(mappings=[mapping("top", {})]),
+    bus(filters={}), bus(event_type="state_changed"), bus(event_type="*"), bus(mappings=[mapping("top", {})]),
     bus(mappings=[mapping("top", {"action": "click"}), mapping("top", {"action": "click", "extra": 1})]),
     bus(mappings=[mapping("missing", {"action": "click"})]), bus(filters={"bad[0]": 1}),
     bus(inactivity_timeout=float("nan")), bus(inactivity_timeout=True), zwave(device_id=None),
@@ -410,7 +433,7 @@ async def test_native_registry_rename_rebinds_without_replay_and_detaches(hass, 
     await hass.async_block_till_done()
     assert wire(hass, entity)["gesture_sequence"] == 2
     assert wire(hass, entity)["bridge_control_id"] == first["bridge_control_id"]
-    bindings = entity._native_bindings + [adapter.native_binding for adapter in entity._adapters]
+    bindings = [adapter.native_binding for adapter in entity._adapters]
     assert all(binding.registry_id == row.id and binding.entity_id == renamed for binding in bindings)
     await entity.async_remove()
     assert all(binding._state_unsub is None and binding._registry_unsub is None for binding in bindings)
@@ -431,6 +454,40 @@ async def test_native_registry_rename_rebinds_without_replay_and_detaches(hass, 
         await hass.async_block_till_done()
         assert wire(hass, entity)["gesture_sequence"] == 1
         assert wire(hass, entity)["bridge_control_id"] == first["bridge_control_id"]
+
+
+@pytest.mark.parametrize("canonical", [False, True])
+async def test_native_rename_into_another_declared_source_keeps_one_subscription(hass, canonical):
+    from homeassistant.helpers import entity_registry as er
+    registry = er.async_get(hass)
+    row = registry.async_get_or_create("event", "fixture_source", "rename-collision", suggested_object_id="before_rename")
+    target = "event.after_rename"
+    hass.states.async_set(row.entity_id, "unknown")
+    actions = {"click": {"kind": "press", "press_count": 1}}
+    config = {"unique_id": "rename-collision", "name": "Rename Collision", "buttons": [
+        {"id": "top", "label": "Top", "source_entity_id": row.entity_id, "actions": actions},
+        {"id": "bottom", "label": "Bottom", "source_entity_id": target, "actions": actions}]}
+    if canonical:
+        config["sources"] = [{"id": f"{button['id']}_source", "type": "native_event",
+                               "button_id": button["id"], "button_label": button["label"],
+                               "source_entity_id": button["source_entity_id"], "actions": actions}
+                              for button in config.pop("buttons")]
+    entity = GestureBridgeEvent(NativeControlConfig.parse(config))
+    component = EntityComponent(logging.getLogger(__name__), "event", hass)
+    await component.async_add_entities([entity])
+    registry.async_update_entity(row.entity_id, new_entity_id=target)
+    hass.states.async_set(target, dt_util.utcnow().isoformat(), {"event_type": "click"})
+    await hass.async_block_till_done()
+    attrs = wire(hass, entity)
+    assert "gesture_sequence" not in attrs  # Rename is baseline metadata.
+    assert attrs["bridge_sources"][0]["error"] == "duplicate_native_source"
+    assert attrs["bridge_sources"][0]["ready"] is False
+    assert attrs["bridge_sources"][1]["ready"] is True
+    hass.states.async_set(target, dt_util.utcnow().isoformat(), {"event_type": "click"})
+    await hass.async_block_till_done()
+    attrs = wire(hass, entity)
+    assert attrs["gesture_sequence"] == 1 and attrs["button_id"] == "bottom"
+    assert sum(adapter.native_binding.subscribed_entity_id == target for adapter in entity._adapters) == 1
 
 
 @pytest.mark.parametrize("canonical", [False, True])

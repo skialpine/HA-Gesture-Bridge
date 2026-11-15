@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
 import logging
 import math
 from typing import Any
@@ -12,15 +10,14 @@ from uuid import uuid4
 import voluptuous as vol
 
 from homeassistant.components.event import EventEntity, PLATFORM_SCHEMA as EVENT_PLATFORM_SCHEMA
-from homeassistant.core import Event, State, callback
+from homeassistant.core import Event, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
-from .config import CONTRACT_VERSION, DOMAIN, NativeButtonConfig, NativeControlConfig
+from .config import CONTRACT_VERSION, DOMAIN, NativeControlConfig
 from .sources import SourceAdapter
-from .sources.native import NativeSourceBinding
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,25 +60,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         async_add_entities([GestureBridgeEvent(config)], config_subentry_id=subentry.subentry_id)
 
 
-def source_timestamp(state: State | None) -> datetime | None:
-    if state is None or state.state in ("unknown", "unavailable"):
-        return None
-    timestamp = dt_util.parse_datetime(state.state)
-    if timestamp is None or timestamp.tzinfo is None:
-        return None
-    return dt_util.as_utc(timestamp)
-
-
-@dataclass
-class _Source:
-    button: NativeButtonConfig
-    ready: bool = False
-    availability: str = "unknown"
-    error: str | None = None
-    watermark: datetime | None = None
-    held: bool = False
-
-
 class GestureBridgeEvent(EventEntity):
     """Keep independent source history and shared monotonic occurrence identity."""
 
@@ -91,9 +69,7 @@ class GestureBridgeEvent(EventEntity):
         self.config = config
         self._attr_unique_id = config.control_id
         self._attr_name = config.name
-        self._sources = {} if config.source_configs else {button.source_entity_id: _Source(button) for button in config.inputs}
         self._adapters = []
-        self._native_bindings = []
         self._held_buttons = set()
         self._unmapped_count = 0
         self._error_count = 0
@@ -102,35 +78,29 @@ class GestureBridgeEvent(EventEntity):
         self._session_id = uuid4().hex
         self._sequence = 0
         self._update_kind = "snapshot"
-        started = dt_util.utcnow()
-        # Native EventEntity states use milliseconds; a genuinely fresh first
-        # occurrence in this same millisecond must not compare older than init.
-        self._started_at = started.replace(microsecond=started.microsecond // 1000 * 1000)
 
     @property
     def _source_ready(self) -> bool:
         """Compatibility for single-source integrations and existing checks."""
-        return next(iter(self._sources.values())).ready if self._sources else bool(self._adapters and self._adapters[0].ready)
+        return bool(self._adapters and self._adapters[0].ready)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         # Stay HA-available while loaded so readiness/load metadata remains visible.
         sources = []
-        multiple = len(self._sources) > 1
-        for source in self._sources.values():
-            item = {"id": f"native-{source.button.id}" if multiple else "native-source",
-                    "ready": source.ready, "availability": source.availability}
-            if multiple:
-                item["button_id"] = source.button.id
-            if source.error:
-                item["error"] = source.error
-            sources.append(item)
         for adapter in self._adapters:
             for button in adapter.config.buttons:
-                item = {"id": adapter.config.id if len(adapter.config.buttons) == 1 else f"{adapter.config.id}-{button.id}",
-                        "button_id": button.id, "ready": adapter.ready, "availability": adapter.availability}
+                if self.config.source_configs:
+                    source_id = adapter.config.id if len(adapter.config.buttons) == 1 else f"{adapter.config.id}-{button.id}"
+                else:
+                    source_id = f"native-{button.id}" if len(self.config.inputs) > 1 else "native-source"
+                item = {"id": source_id, "ready": adapter.ready, "availability": adapter.availability}
+                if self.config.source_configs or len(self.config.inputs) > 1:
+                    item["button_id"] = button.id
                 if adapter.error:
-                    item["error"] = adapter.error
+                    item["error"] = ("A bridge aggregate cannot be used as a native input source"
+                                     if not self.config.source_configs and adapter.error == "aggregate_source_forbidden"
+                                     else adapter.error)
                 sources.append(item)
         version = "1.1" if self.config.load_entity_id and self.config.load_entity_id.startswith("light.") else CONTRACT_VERSION
         return {"bridge_contract_version": version, "bridge_control_id": self.config.control_id,
@@ -167,71 +137,34 @@ class GestureBridgeEvent(EventEntity):
             result["attributes"] = projected
         return result
 
-    def _set_source_status(self, source: _Source, state: State | None) -> None:
-        if state is not None and "bridge_contract_version" in state.attributes:
-            error = "A bridge aggregate cannot be used as a native input source"
-            if source.error != error:
-                _LOGGER.error("%s/%s: %s", self.config.control_id, source.button.id, error)
-            source.error, source.ready, source.availability, source.held = error, False, "unavailable", False
-            return
-        source.error = None
-        source.ready = state is not None and state.state != "unavailable" and not state.attributes.get("restored", False)
-        source.availability = "available" if source.ready else "unavailable"
-        if not source.ready:
-            source.held = False
-
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if self.entity_id in self._sources:
-            raise ValueError("A control cannot consume its own aggregate entity")
-        for source_config in self.config.source_configs:
+        for source_config in self.config.runtime_sources():
             if source_config.source_entity_id == self.entity_id:
                 raise ValueError("A control cannot consume its own aggregate entity")
             adapter = SourceAdapter(self.hass, source_config, self._adapter_gesture, self._adapter_status,
-                                    self._adapter_idle, self._adapter_unmapped)
+                                    self._adapter_idle, self._adapter_unmapped, self._native_target_available)
             self._adapters.append(adapter)
             self.async_on_remove(adapter.close)
             await adapter.async_start()
-            native = getattr(adapter, "native_binding", None)
-            if native and native.entity_id and any(
-                getattr(other, "native_binding", None) and other.native_binding.entity_id == native.entity_id
-                for other in self._adapters[:-1]
-            ):
-                adapter.close()
-                adapter.ready, adapter.availability, adapter.error = False, "unavailable", "duplicate_native_source"
             if adapter.error:
                 self._error_count += 1
-        for entity_id, source in list(self._sources.items()):
-            def baseline(target, state, initial, old_entity_id, source=source, declared=entity_id):
-                self._sources.pop(old_entity_id or declared, None)
-                if target and target in self._sources and self._sources[target] is not source:
-                    source.ready, source.availability, source.error, source.held = False, "unavailable", "duplicate_native_source", False
-                    self._sources[declared] = source
-                    if not initial:
-                        self._snapshot()
-                    return False
-                # An absent registry identity remains a tracked, unavailable
-                # source but never binds a replacement with the old entity ID.
-                self._sources[target or declared] = source
-                source.held = False
-                self._set_source_status(source, state)
-                source.watermark = source_timestamp(state)
-                if not initial:
-                    self._snapshot()
-            binding = NativeSourceBinding(self.hass, entity_id, source.button.source_registry_id,
-                                          self._source_changed, baseline)
-            self._native_bindings.append(binding)
-            self.async_on_remove(binding.close)
-            binding.start()
         if self.config.load_entity_id:
             self.async_on_remove(async_track_state_change_event(self.hass, [self.config.load_entity_id], self._load_changed))
         self.async_on_remove(self._clear_holds)
 
     @callback
+    def _native_target_available(self, adapter, entity_id):
+        """Keep physical input ownership exclusive during setup and rename."""
+        return not any(
+            other is not adapter and (binding := getattr(other, "native_binding", None)) is not None
+            and binding.subscribed_entity_id == entity_id
+            for other in self._adapters
+        )
+
+    @callback
     def _clear_holds(self) -> None:
         self._held_buttons.clear()
-        for source in self._sources.values():
-            source.held = False
 
     @callback
     def _adapter_idle(self, adapter):
@@ -249,6 +182,7 @@ class GestureBridgeEvent(EventEntity):
         self._unmapped_count += 1
         if ambiguous:
             self._error_count += 1
+        _LOGGER.warning("Unmapped action for gesture control %s/%s", self.config.control_id, adapter.config.id)
         self._snapshot()
 
     @callback
@@ -283,48 +217,3 @@ class GestureBridgeEvent(EventEntity):
     @callback
     def _load_changed(self, event: Event) -> None:
         self._snapshot()
-
-    @callback
-    def _source_changed(self, event: Event) -> None:
-        source = self._sources.get(event.data.get("entity_id"))
-        if source is None:
-            return
-        state: State | None = event.data["new_state"]
-        old_state: State | None = event.data["old_state"]
-        self._set_source_status(source, state)
-        timestamp = source_timestamp(state)
-        if not source.ready or timestamp is None:
-            if timestamp is None:
-                source.held = False
-                # A live source lost event tracking. Publish readiness loss so
-                # C4 can stop that button's outbound hold without inventing a
-                # physical release. Initial unknown source setup stays ready.
-                source.ready = False
-                if source.availability != "unavailable":
-                    source.availability = "unknown"
-            self._snapshot()
-            return
-        # Creation/recovery is a baseline, never a replayed physical gesture.
-        if old_state is None or old_state.state == "unavailable":
-            source.watermark = max(timestamp, source.watermark) if source.watermark else timestamp
-            source.held = False
-            self._snapshot()
-            return
-        if timestamp < self._started_at or (source.watermark is not None and timestamp <= source.watermark):
-            self._snapshot()
-            return
-        source.watermark = timestamp
-        action = state.attributes.get("event_type")
-        gesture = source.button.actions.get(action) if isinstance(action, str) else None
-        if gesture is None:
-            self._unmapped_count += 1
-            _LOGGER.warning("Unmapped action for gesture control %s/%s", self.config.control_id, source.button.id)
-            self._snapshot()
-            return
-        if gesture.kind == "hold_start":
-            if source.held:
-                gesture = source.button.repeat_gesture()
-            source.held = True
-        elif gesture.kind in ("release", "press"):
-            source.held = False
-        self._publish_gesture(source.button.id, gesture)

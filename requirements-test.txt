@@ -5,3 +5,8 @@ jsonschema==4.26.0
 
 # HA MQTT integration dependency, required by MQTT boundary tests on clean runners.
 paho-mqtt==2.1.0
+
+# HA Recorder dependencies, required by the real attribute-encoding regression.
+SQLAlchemy==2.0.54
+fnv-hash-fast==2.0.3
+psutil-home-assistant==0.0.1

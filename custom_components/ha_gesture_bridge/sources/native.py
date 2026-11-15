@@ -23,6 +23,11 @@ class NativeSourceBinding:
         self._state_unsub = self._registry_unsub = None
         self._closed = False
 
+    @property
+    def subscribed_entity_id(self):
+        """Return the identity currently owned by a live state subscription."""
+        return self.entity_id if self._state_unsub is not None else None
+
     @callback
     def start(self):
         self._registry_unsub = self.hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, self._registry_changed)

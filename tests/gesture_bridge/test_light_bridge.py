@@ -4,8 +4,6 @@ import json
 import logging
 from pathlib import Path
 import shutil
-import subprocess
-import os
 
 from homeassistant.components.event import EventEntity
 from homeassistant.helpers.entity_component import EntityComponent
@@ -16,16 +14,6 @@ from custom_components.ha_gesture_bridge.config import NativeControlConfig
 from custom_components.ha_gesture_bridge.event import GestureBridgeEvent
 from tools.validate_gesture_contract import VALIDATOR, validate_state
 
-
-
-def consumer_root():
-    checkout = os.environ.get("C4_HA_SWITCH_CHECKOUT")
-    if not checkout:
-        pytest.skip("Set C4_HA_SWITCH_CHECKOUT to run optional C4 consumer checks")
-    root = Path(checkout).resolve()
-    if not (root / "module/gestures.lua").is_file():
-        pytest.fail("C4_HA_SWITCH_CHECKOUT does not contain the gesture consumer")
-    return root
 
 LIGHT = "light.office_brightness"
 ATTRS = {"supported_color_modes": ["brightness"], "supported_features": 32, "brightness": 128,
@@ -118,7 +106,7 @@ async def test_existing_switch_producer_stays_contract_1_0(hass, load):
 
 
 @pytest.mark.parametrize("runtime", ["luajit", "lua"])
-async def test_real_light_snapshots_pass_existing_lua_consumer(hass, tmp_path, runtime):
+async def test_real_light_snapshots_pass_existing_lua_consumer(hass, tmp_path, runtime, run_consumer):
     executable = shutil.which(runtime)
     if executable is None:
         pytest.skip(f"Install {runtime}")
@@ -137,13 +125,12 @@ async def test_real_light_snapshots_pass_existing_lua_consumer(hass, tmp_path, r
     capture("fresh_after_light_recovery", "top/press_2")
     path = tmp_path / "light-producer.json"
     path.write_text(json.dumps(suite))
-    subprocess.run([executable, "tests/lua/test_gestures.lua", str(path)], cwd=consumer_root(), check=True, capture_output=True, text=True)
-    subprocess.run([executable, "tests/controller/test_dimmer_light_publications.lua", str(path)],
-                   cwd=consumer_root(), check=True, capture_output=True, text=True)
+    await run_consumer(executable, "tests/lua/test_gestures.lua", path)
+    await run_consumer(executable, "tests/controller/test_dimmer_light_publications.lua", path)
 
 
 @pytest.mark.parametrize("runtime", ["luajit", "lua"])
-def test_light_wire_shape_rejection_uses_real_private_decoder(tmp_path, runtime):
+async def test_light_wire_shape_rejection_uses_real_private_decoder(tmp_path, runtime, run_consumer):
     executable = shutil.which(runtime)
     if executable is None:
         pytest.skip(f"Install {runtime}")
@@ -198,4 +185,4 @@ for _,case in ipairs(cases) do
 end
 print('Strict light bridge wire cases passed: '..#cases)
 ''')
-    subprocess.run([executable, str(runner), str(fixture)], cwd=consumer_root(), check=True, capture_output=True, text=True)
+    await run_consumer(executable, runner, fixture)

@@ -5,7 +5,16 @@ version = "0"
 requires-python = ">=3.14.2"
 
 [dependency-groups]
-dev = ["homeassistant==2026.11.1", "pytest==9.2.0", "pytest-asyncio==1.4.0", "jsonschema==4.26.0", "paho-mqtt==2.1.0"]
+dev = [
+    "homeassistant==2026.11.1",
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.0",
+    "jsonschema==4.26.0",
+    "paho-mqtt==2.1.0",
+    "SQLAlchemy==2.0.54",
+    "fnv-hash-fast==2.0.3",
+    "psutil-home-assistant==0.0.1",
+]
 
 [tool.ruff]
 line-length = 120
