@@ -2,12 +2,14 @@
 
 from copy import deepcopy
 from datetime import timedelta
+from itertools import count
+import json
 import logging
 
 from types import MappingProxyType
 
 from homeassistant.components.event import EventEntity
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState, SOURCE_USER
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState, SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_component import DATA_INSTANCES, EntityComponent
@@ -18,6 +20,7 @@ import pytest
 from custom_components.ha_gesture_bridge.config import DOMAIN
 from custom_components.ha_gesture_bridge import async_setup_entry
 from custom_components.ha_gesture_bridge.diagnostics import async_get_config_entry_diagnostics
+from tools.validate_gesture_contract import validate_state
 
 YAML_CONTROL = {"platform": DOMAIN, "unique_id": "office_existing", "name": "Existing Office Paddle",
     "source_entity_id": "event.office_source", "button_id": "top", "button_label": "Top",
@@ -225,3 +228,120 @@ async def test_import_yaml_mqtt_validation_retains_selector_and_retries(hass, mo
     assert registry.async_get_entity_id("event", DOMAIN, "existing_mqtt") == entity_id
     assert registry.async_get(entity_id).config_entry_id == entry.entry_id
     assert subscriptions == ["remote/action"]
+
+
+async def test_relabel_and_reorder_keep_registered_control_and_gesture_identities(hass, monkeypatch):
+    now, ticks = dt_util.utcnow(), count()
+    monkeypatch.setattr(dt_util, "utcnow", lambda: now + timedelta(milliseconds=next(ticks)))
+    for source in ("event.upper", "event.lower"):
+        hass.states.async_set(source, "unknown", {"event_types": ["KeyPressed2x"]})
+    entry = await create_installation(hass)
+    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"), context={"source": SOURCE_USER})
+    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"name": "Office", "source_type": "native_event"})
+    await hass.config_entries.subentries.async_configure(flow["flow_id"], {
+        "top_entity_id": "event.upper", "bottom_entity_id": "event.lower"})
+    await hass.async_block_till_done()
+    control = next(iter(entry.subentries.values()))
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("event", DOMAIN, control.unique_id)
+    registered_id = registry.async_get(entity_id).id
+    hass.states.async_set("event.upper", dt_util.utcnow().isoformat(), {"event_type": "KeyPressed2x"})
+    await hass.async_block_till_done()
+    original = hass.states.get(entity_id)
+    assert original.attributes["gesture_sequence"] == 1
+
+    changed = deepcopy(dict(control.data))
+    changed["buttons"].reverse()
+    for button in changed["buttons"]:
+        button["label"] = "Lower Paddle" if button["id"] == "bottom" else "Upper Paddle"
+        button["actions"]["KeyPressed2x"]["label"] = "Scene Double Tap"
+    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": control.subentry_id})
+    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {
+        "name": "Renamed Office", "source_type": "advanced"})
+    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"configuration": json.dumps(changed)})
+    assert flow["type"] == "abort"
+    await hass.async_block_till_done()
+    current = hass.states.get(entity_id)
+    validate_state(current.as_dict())
+    assert registry.async_get_entity_id("event", DOMAIN, control.unique_id) == entity_id
+    assert registry.async_get(entity_id).id == registered_id
+    assert current.attributes["friendly_name"] == "Renamed Office"
+    assert current.attributes["bridge_control_id"] == original.attributes["bridge_control_id"]
+    assert current.attributes["bridge_update_kind"] == "snapshot"
+    assert current.state == original.state
+    assert current.attributes["gesture_event_id"] == original.attributes["gesture_event_id"]
+    assert current.attributes["bridge_session_id"] != original.attributes["bridge_session_id"]
+    assert [(button["id"], button["label"]) for button in current.attributes["bridge_buttons"]] == [
+        ("bottom", "Lower Paddle"), ("top", "Upper Paddle")]
+    assert all(button["gestures"] == [{"id": "press_2", "kind": "press", "label": "Scene Double Tap", "press_count": 2}]
+               for button in current.attributes["bridge_buttons"])
+
+    hass.states.async_set("event.lower", dt_util.utcnow().isoformat(), {"event_type": "KeyPressed2x"})
+    await hass.async_block_till_done()
+    fresh = hass.states.get(entity_id)
+    validate_state(fresh.as_dict())
+    assert fresh.attributes["button_id"] == "bottom" and fresh.attributes["gesture_id"] == "press_2"
+    assert fresh.attributes["gesture_sequence"] == 1
+    assert fresh.attributes["gesture_session_id"] == current.attributes["bridge_session_id"]
+
+
+async def test_multiple_live_controls_keep_gestures_holds_loads_and_status_independent(hass, monkeypatch):
+    now, ticks = dt_util.utcnow(), count()
+    monkeypatch.setattr(dt_util, "utcnow", lambda: now + timedelta(milliseconds=next(ticks)))
+    entry = await create_installation(hass)
+    for name in ("one", "two", "three"):
+        hass.states.async_set(f"event.{name}", "unknown", {
+            "event_types": ["KeyPressed2x", "KeyHeldDown", "KeyReleased"]})
+        hass.states.async_set(f"switch.{name}", "off")
+        flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"), context={"source": SOURCE_USER})
+        flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"name": name, "source_type": "native_event"})
+        await hass.config_entries.subentries.async_configure(flow["flow_id"], {
+            "top_entity_id": f"event.{name}", "load_entity_id": f"switch.{name}"})
+        await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    identities = {control.title: registry.async_get_entity_id("event", DOMAIN, control.unique_id)
+                  for control in entry.subentries.values()}
+
+    def states():
+        current = {name: hass.states.get(entity_id) for name, entity_id in identities.items()}
+        for state in current.values():
+            validate_state(state.as_dict())
+        return current
+
+    initial = states()
+    assert len({state.attributes["bridge_session_id"] for state in initial.values()}) == 3
+    assert all("gesture_sequence" not in state.attributes for state in initial.values())
+    for action in ("KeyHeldDown", "KeyHeldDown"):
+        hass.states.async_set("event.one", dt_util.utcnow().isoformat(), {"event_type": action})
+        await hass.async_block_till_done()
+    first = states()
+    assert first["one"].attributes["gesture_sequence"] == 2
+    assert first["one"].attributes["event_type"] == "hold_repeat"
+    assert first["two"] is initial["two"] and first["three"] is initial["three"]
+    for name in ("two", "three"):
+        hass.states.async_set(f"event.{name}", dt_util.utcnow().isoformat(), {"event_type": "KeyPressed2x"})
+        await hass.async_block_till_done()
+    before = states()
+    assert before["one"] is first["one"]
+    assert before["two"].attributes["gesture_sequence"] == before["three"].attributes["gesture_sequence"] == 1
+    assert len({state.attributes["gesture_event_id"] for state in before.values()}) == 3
+
+    hass.states.async_set("switch.one", "unavailable")
+    hass.states.async_set("event.two", "unavailable")
+    await hass.async_block_till_done()
+    changed = states()
+    assert changed["one"].attributes["bridge_load"]["available"] is False
+    assert changed["one"].attributes["bridge_sources"][0]["ready"] is True
+    assert changed["two"].attributes["bridge_sources"][0]["ready"] is False
+    assert changed["two"].attributes["bridge_load"]["available"] is True
+    assert changed["three"] is before["three"]
+    assert all(changed[name].attributes["gesture_event_id"] == state.attributes["gesture_event_id"]
+               and changed[name].state == state.state for name, state in before.items())
+    hass.states.async_set("event.one", dt_util.utcnow().isoformat(), {"event_type": "KeyReleased"})
+    await hass.async_block_till_done()
+    final = states()
+    assert final["one"].attributes["gesture_sequence"] == 3
+    assert final["one"].attributes["event_type"] == "release"
+    assert final["one"].attributes["bridge_load"]["available"] is False
+    assert final["two"] is changed["two"] and final["three"] is changed["three"]

@@ -78,6 +78,22 @@ move their state revision backwards for a delayed response. Two identical fresh
 double presses have distinct sequences and timestamps and must both be processed.
 Sequence gaps are diagnostic information, not a request to replay offline scenes.
 
+## Validated aggregate examples
+
+These examples run through HA's actual config-entry and event platforms in
+[`test_config_entry.py`](../tests/gesture_bridge/test_config_entry.py), using
+fixture sources rather than physical hardware:
+
+| Change | Published result |
+| --- | --- |
+| Rename a control, move `bottom` before `top`, and change their display labels | The registered aggregate entity, control ID, button IDs and `press_2` gesture IDs remain unchanged. Reload creates a new current session; any restored last gesture keeps its original identity and is marked `snapshot`. |
+| Receive the first fresh bottom double press after that edit | The same aggregate publishes `button_id=bottom`, `gesture_id=press_2` and sequence `1` in its new current session. |
+| Configure three controls and hold one while tapping the others | Each control has its own session and sequence. Repeating the first control's hold produces `hold_repeat`; it does not change either other control. |
+| Lose one control's linked load and another control's input source | Only the respective load/source metadata changes. Last-gesture timestamps and IDs remain intact, and the first control still accepts its reported release while its load is unavailable. |
+
+Linked loads remain observational metadata. These publications do not invoke
+DeviceSide or any load-control action.
+
 ## Validate examples
 
 From the repository root:
