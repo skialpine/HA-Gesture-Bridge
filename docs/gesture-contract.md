@@ -111,4 +111,44 @@ capabilities, invalid load targets, restored history, and repeated presses.
 
 ## Optional acknowledgment capability
 
-HA Gesture Bridge 0.1.1 adds the optional boolean attribute `bridge_acknowledgment_supported: true`. It does not change gesture identity or contract versions 1.0/1.1. A receiver may use the [diagnostic acknowledgment action](latency.md) only when explicitly enabled. Acknowledgments do not produce gesture/state publications or load commands; gesture validity never depends on clocks agreeing or an acknowledgment succeeding.
+HA Gesture Bridge 0.1.2 adds the optional integer attribute `bridge_acknowledgment_version: 2`. It does not change gesture identity or contract versions 1.0/1.1. A receiver may use the [diagnostic acknowledgment action](latency.md) only when explicitly enabled. Acknowledgments do not produce gesture/state publications or load commands; gesture validity never depends on clocks agreeing or an acknowledgment succeeding.
+
+## Optional status LEDs
+
+An aggregate with an automatic or explicitly configured LED backend adds `bridge_led_version: 1` and `bridge_leds`. This extension does not change the 1.x gesture contract. Automatic discovery may return an empty list when the selected device exposes no supported status LEDs. Aggregates without an LED backend omit both attributes. An empty list or unknown LED version must not enable receiver LED commands.
+
+Each list item contains:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | stable key | Channel identity, retained when renamed |
+| `label` | string | Display name, 1–128 Unicode characters without ASCII controls |
+| `button_id` | stable key | Logical button associated with this channel, such as `top`, `bottom` or `toggle` |
+| `available` | boolean | All required discovered or explicitly configured endpoints can currently be used |
+| `colors` | list of uppercase six-hex strings | Exact supported palette, at most 64 nonblack colors plus optional `000000` |
+| `brightness_supported` | boolean | The discovered or explicitly configured LED supports brightness |
+| `color_supported` | boolean | The LED has an independently writable color setting |
+| `behaviors` | list of stable strings | Supported explicit behaviors: `follow_load`, `follow_load_inverted`, `always_on`, `always_off` |
+| `behavior` | optional stable string | Last confirmed device behavior; must be one of its supported behaviors |
+| `color` | optional six-hex string | Last confirmed mapped color; black requires explicit confirmed power-off |
+| `brightness` | optional number 0–100 | Last confirmed mapped percentage |
+
+At most 16 channels are advertised. Channel IDs and logical button IDs are unique within a control. IDs use `[a-z][a-z0-9_]{0,63}`. A missing current color/brightness is unknown, not zero. A device profile must validate its actual reported parameter metadata before granting control; a matching model name alone is insufficient. Receivers must not infer capabilities from model, label or a related load. Metadata omits backend HA entity IDs and option names.
+
+Receivers call `ha_gesture_bridge.set_led` with `entity_id` (aggregate), `led_id`, and at least one of `color`, `brightness` or `behavior`.
+
+- Color-only changes the independent color endpoint and preserves mode/power. Fixed-color indicators do not support color-only commands.
+- Brightness-only preserves behavior. An intensity-only standard indicator rejects an implicit power transition unless behavior is explicit.
+- Behavior-only changes the mode/power endpoint and preserves color. Follow-load behaviors are advertised only by profiles with reviewed local-load mode semantics.
+- A combined request explicitly changes each supplied setting. Black (`000000`) requires `behavior: always_off`, preserves the stored color, and represents power off rather than a fabricated black color parameter.
+
+HA accepts exact palette colors, normalizes hex case and chooses the nearest supported brightness (ties lower). A fixed-color indicator accepts its logical white/on token only with explicit `always_on`; behavior-only commands are preferred for such devices. All writes are prevalidated before the first endpoint call and awaited sequentially, without optimistic feedback. Confirmed LED updates are snapshots, never fresh gestures.
+
+C4 bound-device following is a receiver policy, not a Zooz hardware mode. The receiver sends an explicit `always_on` plus the chosen nonblack on/off color, or `always_off` for a chosen black color, after actual connected-device feedback. Changing saved on/off colors alone does not issue a device command. Setup, reconnect and snapshots never reapply a behavior or send LED commands.
+
+See [LED setup](leds.md) for configuration examples, registry pinning and failure behavior.
+
+
+### Physical source discovery
+
+`bridge_source_device_id` is an optional HA device-registry identity for the physical input selected in the integration. It is distinct from `bridge_load`, which describes an explicitly controlled HA load. The HA discovery catalog uses this registry identity to choose a single most-capable picker entry for an unambiguous physical source, and publishes replaced entity IDs as selection aliases. Consumers follow the catalog's preferred choices rather than re-inferring physical identity from names or areas. Independently addressable endpoints and multiple controls remain separate when the association is ambiguous. This discovery hint never authorizes a relay command or changes gesture occurrence identity. See [the catalog contract](catalog.md).

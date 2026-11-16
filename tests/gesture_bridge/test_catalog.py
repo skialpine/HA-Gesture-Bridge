@@ -6,11 +6,13 @@ import logging
 from unittest.mock import Mock
 
 from homeassistant.components.recorder.db_schema import MAX_STATE_ATTRS_BYTES, StateAttributes
+from homeassistant.const import EntityCategory
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.core import EVENT_STATE_CHANGED
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_component import EntityComponent
+import pytest
 
 from custom_components.ha_gesture_bridge.config import DOMAIN, NativeControlConfig
 from custom_components.ha_gesture_bridge.event import GestureBridgeEvent
@@ -113,13 +115,14 @@ async def test_registry_area_and_names_update_revision_without_controlling_anyth
 
 async def test_bridge_row_projects_capabilities_and_source_readiness_not_event_timestamp(hass):
     item = register(hass, "event", "paddle", platform=DOMAIN)
-    attrs = bridge_attrs()
+    attrs = bridge_attrs() | {"bridge_source_device_id": "physical-source-device"}
     hass.states.async_set(item.entity_id, "2026-11-14T20:00:00+00:00", attrs)
     _, catalog = await add_catalog(hass)
     first = catalog.extra_state_attributes
     row = first["catalog_entities"][0]
     assert row["state"] == "ready" and row["availability"] == "available" and row["ready"] is True
     assert row["bridge_control_id"] == "office-control"
+    assert row["attributes"]["bridge_source_device_id"] == "physical-source-device"
     assert row["load_entity_id"] == "light.office" and row["load_domain"] == "light"
     assert row["attributes"]["bridge_load"]["attributes"] == {"supported_color_modes": ["brightness"], "supported_features": 32}
     assert "raw_payload" not in row["attributes"] and "gesture_event_id" not in row["attributes"]
@@ -238,6 +241,18 @@ async def test_load_metadata_churn_does_not_rebuild_catalog_or_emit_gestures(has
     assert current.attributes["gesture_event_id"] == first.attributes["gesture_event_id"]
 
 
+async def test_irrelevant_entity_registry_edit_does_not_rebuild_catalog(hass, monkeypatch):
+    unrelated = register(hass, "sensor", "unrelated_temperature")
+    _, catalog = await add_catalog(hass)
+    before = catalog.extra_state_attributes["catalog_revision"]
+    rebuild = Mock(wraps=build_catalog)
+    monkeypatch.setattr(sensor_module, "build_catalog", rebuild)
+    er.async_get(hass).async_update_entity(unrelated.entity_id, name="Renamed Temperature")
+    await hass.async_block_till_done()
+    rebuild.assert_not_called()
+    assert catalog.extra_state_attributes["catalog_revision"] == before
+
+
 async def test_state_filter_preserves_names_capabilities_availability_and_removal(hass):
     item = register(hass, "light", "changing")
     hass.states.async_set(item.entity_id, "on", {"supported_color_modes": ["brightness"]})
@@ -281,6 +296,191 @@ async def test_catalog_rows_remain_live_but_are_excluded_by_actual_recorder_enco
     recorded = json.loads(encoded)
     assert 0 < len(encoded) < MAX_STATE_ATTRS_BYTES
     assert "catalog_entities" not in recorded
+    assert not any(key.startswith("catalog_names_page_") for key in recorded)
+    assert recorded["catalog_names_total"] == 100
     assert recorded["catalog_revision"] == state.attributes["catalog_revision"]
     assert recorded["catalog_contract_version"] == "1.0"
     assert "exceed maximum size" not in caplog.text
+
+
+async def test_names_projection_is_paged_without_changing_full_catalog_or_authority(hass):
+    for index in range(1400):
+        item = register(hass, "switch", f"bounded_catalog_{index:04d}")
+        hass.states.async_set(item.entity_id, "off", {"friendly_name": f"Fixture Room {index:04d} Switch"})
+    _, catalog = await add_catalog(hass)
+    attrs = catalog.extra_state_attributes
+    assert len(attrs["catalog_entities"]) == attrs["catalog_names_total"] == 1400
+    assert attrs["catalog_names_version"] == 1 and attrs["catalog_names_pages"] > 8
+    projected = []
+    for index in range(1, attrs["catalog_names_pages"] + 1):
+        page = attrs[sensor_module.names_page_key(index)]
+        assert len(json.dumps(page, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()) <= 16384
+        assert all(set(row) == {"entity_id", "domain", "friendly_name", "area_name"} for row in page)
+        projected.extend(page)
+    assert [row["entity_id"] for row in projected] == [row["entity_id"] for row in attrs["catalog_entities"]]
+    first_names, first_full = attrs["catalog_names_revision"], attrs["catalog_revision"]
+    hass.states.async_set("switch.bounded_catalog_0000", "on", {"friendly_name": "Fixture Room 0000 Switch"})
+    await hass.async_block_till_done()
+    assert catalog.extra_state_attributes["catalog_names_revision"] == first_names
+    assert catalog.extra_state_attributes["catalog_revision"] != first_full
+    hass.states.async_set("switch.bounded_catalog_0000", "on", {"friendly_name": "Renamed Fixture"})
+    await hass.async_block_till_done()
+    assert catalog.extra_state_attributes["catalog_names_revision"] != first_names
+
+
+def test_unrepresentable_names_projection_reports_error_instead_of_truncation():
+    row = {"entity_id": "switch.fixture", "domain": "switch", "friendly_name": "x" * 16384, "area_name": None}
+    projection = sensor_module.names_attributes([row])
+    assert projection["catalog_names_error"] == "record_too_large"
+    assert projection["catalog_names_total"] == 1 and projection["catalog_names_pages"] == 0
+    assert not any(key.startswith("catalog_names_page_") for key in projection)
+    row["friendly_name"] = "Fixture"
+    projection = sensor_module.names_attributes([row] * 10001)
+    assert projection["catalog_names_error"] == "catalog_limit"
+
+
+async def installation(hass):
+    flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(flow["flow_id"], {"import_yaml": False})
+    await hass.async_block_till_done()
+    return result["result"]
+
+
+def physical_device(hass, entry, name):
+    return dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id,
+        identifiers={("fixture_switch", name)}, name=name)
+
+
+def control(hass, name, *, source_device_id=None, load=None):
+    item = register(hass, "event", name, platform=DOMAIN)
+    attrs = bridge_attrs() | {"bridge_control_id": name, "friendly_name": name,
+        "bridge_load": load, "bridge_source_device_id": source_device_id}
+    hass.states.async_set(item.entity_id, "unknown", attrs)
+    return item
+
+
+async def test_catalog_prefers_bath_and_toilet_gestures_using_real_registry_relations(hass):
+    entry = await installation(hass)
+    bath = physical_device(hass, entry, "Primary Bath")
+    toilet = physical_device(hass, entry, "Primary Toilet")
+    area = ar.async_get(hass).async_create("Primary Bath")
+    dr.async_get(hass).async_update_device(bath.id, area_id=area.id)
+    relay = register(hass, "switch", "primary_bath", platform="zwave_js", device_id=bath.id)
+    toilet_relay = register(hass, "switch", "primary_toilet", platform="zwave_js", device_id=toilet.id)
+    wrapper = register(hass, "light", "primary_bath_as_light", platform="switch_as_x", device_id=bath.id)
+    er.async_get(hass).async_update_entity_options(wrapper.entity_id, "switch_as_x",
+        {"entity_id": relay.id, "invert": False})
+    configuration = register(hass, "switch", "bath_setting", platform="zwave_js", device_id=bath.id,
+        entity_category=EntityCategory.CONFIG)
+    plain = register(hass, "switch", "plain", original_name="Plain Switch")
+    group = register(hass, "light", "c4_target", device_id=bath.id)
+    for item in (relay, toilet_relay, wrapper, configuration, plain):
+        hass.states.async_set(item.entity_id, "off", {"friendly_name": "Primary Bath"} if item == wrapper else {})
+    hass.states.async_set(group.entity_id, "off", {"friendly_name": "C4 Bath Target", "entity_id": ["light.child"]})
+    target = {"entity_id": group.entity_id, "domain": "light", "state": "off", "available": True,
+        "attributes": {"supported_color_modes": ["brightness"]}}
+    bath_control = control(hass, "bath_gestures", source_device_id=bath.id, load=target)
+    toilet_control = control(hass, "toilet_gestures", source_device_id=toilet.id)
+    await hass.async_block_till_done()
+
+    rows = {row["entity_id"]: row for row in build_catalog(hass)}
+    assert set(rows) == {bath_control.entity_id, toilet_control.entity_id, group.entity_id,
+        plain.entity_id, configuration.entity_id}
+    preferred = rows[bath_control.entity_id]
+    assert preferred["entity_aliases"] == sorted([relay.entity_id, wrapper.entity_id])
+    assert preferred["source_entity_id"] == wrapper.entity_id
+    assert preferred["friendly_name"] == "Primary Bath (gestures)"
+    assert preferred["area_name"] == "Primary Bath"
+    assert preferred["attributes"]["bridge_load"]["entity_id"] == group.entity_id
+    assert rows[group.entity_id]["is_group"] is True
+    assert rows[toilet_control.entity_id]["entity_aliases"] == [toilet_relay.entity_id]
+    assert rows[toilet_control.entity_id]["attributes"]["bridge_load"] is None
+    assert "entity_aliases" not in rows[plain.entity_id]
+    attrs = hass.states.get("sensor.ha_gesture_bridge_catalog").attributes
+    projected = [row for index in range(1, attrs["catalog_names_pages"] + 1)
+        for row in attrs[sensor_module.names_page_key(index)]]
+    choice = next(row for row in projected if row["entity_id"] == bath_control.entity_id)
+    assert choice["entity_aliases"] == preferred["entity_aliases"]
+    assert choice["source_entity_id"] == wrapper.entity_id
+    assert "attributes" not in choice and "device_id" not in choice
+    assert hass.states.get(relay.entity_id).state == hass.states.get(group.entity_id).state == "off"
+
+
+@pytest.mark.parametrize("reference,inverted", [("entity", False), ("registry", False), ("entity", True)])
+async def test_catalog_prefers_verified_light_wrapper_without_gesture_control(hass, reference, inverted):
+    relay = register(hass, "switch", "closet", platform="zwave_js")
+    wrapper = register(hass, "light", "closet_as_light", platform="switch_as_x")
+    er.async_get(hass).async_update_entity_options(wrapper.entity_id, "switch_as_x",
+        {"entity_id": relay.entity_id if reference == "entity" else relay.id, "invert": inverted})
+    hass.states.async_set(relay.entity_id, "off")
+    hass.states.async_set(wrapper.entity_id, "off", {"supported_color_modes": ["onoff"]})
+    rows = build_catalog(hass)
+    if inverted:
+        assert {row["entity_id"] for row in rows} == {relay.entity_id, wrapper.entity_id}
+        assert all("entity_aliases" not in row for row in rows)
+    else:
+        assert len(rows) == 1 and rows[0]["entity_id"] == wrapper.entity_id
+        assert rows[0]["entity_aliases"] == [relay.entity_id]
+
+
+async def test_ambiguous_endpoints_controls_and_names_remain_separate(hass):
+    entry = await installation(hass)
+    device = physical_device(hass, entry, "Same Name")
+    first = register(hass, "switch", "endpoint_1", device_id=device.id)
+    second = register(hass, "switch", "endpoint_2", device_id=device.id)
+    for item in (first, second):
+        hass.states.async_set(item.entity_id, "off", {"friendly_name": "Same Name"})
+    bridge = control(hass, "remote", source_device_id=device.id)
+    rows = build_catalog(hass)
+    assert {row["entity_id"] for row in rows} == {first.entity_id, second.entity_id, bridge.entity_id}
+    assert all("entity_aliases" not in row for row in rows)
+    er.async_get(hass).async_update_entity(second.entity_id, disabled_by=er.RegistryEntryDisabler.USER)
+    another = control(hass, "another_remote", source_device_id=device.id)
+    rows = build_catalog(hass)
+    assert {row["entity_id"] for row in rows} == {first.entity_id, bridge.entity_id, another.entity_id}
+    assert all("entity_aliases" not in row for row in rows)
+    assert all(row.get("source_entity_id") == first.entity_id for row in rows if row["domain"] == "event")
+
+
+async def test_ambiguous_physical_source_never_replaces_its_separate_linked_target(hass):
+    entry = await installation(hass)
+    device = physical_device(hass, entry, "Dual Relay")
+    first = register(hass, "switch", "dual_relay_1", device_id=device.id)
+    second = register(hass, "switch", "dual_relay_2", device_id=device.id)
+    target = register(hass, "light", "separate_target", original_name="Separate Target")
+    for item in (first, second):
+        hass.states.async_set(item.entity_id, "off")
+    hass.states.async_set(target.entity_id, "off", {"supported_color_modes": ["brightness"]})
+    load = {"entity_id": target.entity_id, "domain": "light", "state": "off", "available": True,
+            "attributes": {"supported_color_modes": ["brightness"]}}
+    bridge = control(hass, "dual_relay_gestures", source_device_id=device.id, load=load)
+
+    rows = {row["entity_id"]: row for row in build_catalog(hass)}
+    assert set(rows) == {first.entity_id, second.entity_id, target.entity_id, bridge.entity_id}
+    assert all("entity_aliases" not in row and "source_entity_id" not in row for row in rows.values())
+    assert rows[bridge.entity_id]["friendly_name"] == "dual_relay_gestures"
+    assert rows[bridge.entity_id]["attributes"]["bridge_load"] == load
+    assert rows[target.entity_id]["kind"] == "dimmer"
+
+
+async def test_changing_physical_source_rebuilds_preference_and_names_revision(hass):
+    entry = await installation(hass)
+    devices = [physical_device(hass, entry, name) for name in ("Bath", "Toilet")]
+    relays = [register(hass, "switch", name, device_id=device.id)
+        for name, device in zip(("bath", "toilet"), devices, strict=True)]
+    for relay in relays:
+        hass.states.async_set(relay.entity_id, "off")
+    bridge = control(hass, "gesture_control", source_device_id=devices[0].id)
+    await hass.async_block_till_done()
+    before = hass.states.get("sensor.ha_gesture_bridge_catalog").attributes
+    old = next(row for row in before["catalog_entities"] if row["entity_id"] == bridge.entity_id)
+    assert old["entity_aliases"] == [relays[0].entity_id]
+    current = hass.states.get(bridge.entity_id)
+    hass.states.async_set(bridge.entity_id, current.state,
+        dict(current.attributes) | {"bridge_source_device_id": devices[1].id})
+    await hass.async_block_till_done()
+    after = hass.states.get("sensor.ha_gesture_bridge_catalog").attributes
+    changed = next(row for row in after["catalog_entities"] if row["entity_id"] == bridge.entity_id)
+    assert changed["entity_aliases"] == [relays[1].entity_id]
+    assert before["catalog_names_revision"] != after["catalog_names_revision"]
+    assert any(row["entity_id"] == relays[0].entity_id for row in after["catalog_entities"])

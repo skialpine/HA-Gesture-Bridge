@@ -16,6 +16,47 @@ from .config import DOMAIN, Gesture, IDENTITY, KEY
 
 CATALOG_VERSION = "1.0"
 CATALOG_UNIQUE_ID = "ha_gesture_bridge_catalog"
+NAMES_PAGE_BYTES = 16384
+NAMES_MAX_BYTES = 524288
+NAMES_MAX_PAGES = 64
+
+
+def names_page_key(index: int) -> str:
+    return f"catalog_names_page_{index:03d}"
+
+
+def names_attributes(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Project names independently of load/gesture metadata, in bounded pages.
+
+    A coordinator can page entities, but cannot split one entity attribute.
+    ASCII JSON bounds leave room inside a 32 KiB entity-response envelope.
+    Never truncate rows or names: an unrepresentable projection is explicit.
+    """
+    names = [{key: row[key] for key in ("entity_id", "domain", "friendly_name", "area_name",
+              "entity_aliases", "source_entity_id", "is_group") if key in row} for row in rows]
+    encoded = [json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=True) for row in names]
+    canonical = "[" + ",".join(encoded) + "]"
+    result = {"catalog_names_version": 1, "catalog_names_revision": sha256(canonical.encode()).hexdigest(),
+              "catalog_names_total": len(names), "catalog_names_pages": 0}
+    if len(names) > 10000 or len(canonical) > NAMES_MAX_BYTES:
+        return result | {"catalog_names_error": "catalog_limit"}
+    pages, page, size = [], [], 2
+    for row, raw in zip(names, encoded, strict=True):
+        if len(raw) + 2 > NAMES_PAGE_BYTES:
+            return result | {"catalog_names_error": "record_too_large"}
+        addition = len(raw) + bool(page)
+        if page and size + addition > NAMES_PAGE_BYTES:
+            pages.append(page)
+            page, size = [], 2
+        size += len(raw) + bool(page)
+        page.append(row)
+    if page:
+        pages.append(page)
+    if len(pages) > NAMES_MAX_PAGES:
+        return result | {"catalog_names_error": "catalog_limit"}
+    result["catalog_names_pages"] = len(pages)
+    return result | {names_page_key(index): page for index, page in enumerate(pages, 1)}
+
 _LIGHT_MODES = frozenset({"onoff", "brightness", "color_temp", "hs", "xy", "rgb", "rgbw", "rgbww", "white"})
 _DIMMABLE_MODES = _LIGHT_MODES - {"onoff"}
 _STATE_DOMAINS = frozenset({"switch", "input_boolean", "light", "event"})
@@ -99,9 +140,13 @@ def _bridge_attributes(attributes: dict[str, Any]) -> dict[str, Any] | None:
         if isinstance(button_id, str) and KEY.fullmatch(button_id):
             projected["button_id"] = button_id
         sources.append(projected)
-    return {"bridge_contract_version": version, "bridge_control_id": control_id,
+    result = {"bridge_contract_version": version, "bridge_control_id": control_id,
             "bridge_buttons": projected_buttons, "bridge_sources": sources,
             "bridge_load": _load_attributes(attributes.get("bridge_load"))}
+    source_device_id = attributes.get("bridge_source_device_id")
+    if isinstance(source_device_id, str) and IDENTITY.fullmatch(source_device_id):
+        result["bridge_source_device_id"] = source_device_id
+    return result
 
 
 def _availability(state: State | None, *, gesture: bool = False,
@@ -124,6 +169,19 @@ def _availability(state: State | None, *, gesture: bool = False,
     if reported and all(item == "unavailable" for item in reported):
         return "unavailable", False
     return "unknown", None
+
+
+def _is_group(entry: er.RegistryEntry, attributes: dict[str, Any]) -> bool:
+    if entry.platform == "group":
+        return True
+    for key in ("entity_id", "group_entities"):
+        members = attributes.get(key)
+        if isinstance(members, (list, tuple)) and all(
+            isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]*\.[a-z0-9_]+", value)
+            for value in members
+        ):
+            return True
+    return False
 
 
 @callback
@@ -164,12 +222,106 @@ def _catalog_row(hass: HomeAssistant, entry: er.RegistryEntry, state: State | No
            "friendly_name": name or entry.entity_id, "area_name": area.name if area else None,
            "device_id": entry.device_id, "state": state_value,
            "availability": availability, "available": available, "ready": ready, "attributes": projected}
+    if _is_group(entry, attrs):
+        row["is_group"] = True
     if kind == "gesture":
         row["bridge_control_id"] = projected["bridge_control_id"]
         load = projected["bridge_load"]
         row["load_entity_id"] = load["entity_id"] if load else None
         row["load_domain"] = load["domain"] if load else None
     return row
+
+
+def _preferred_rows(rows: list[dict[str, Any]], registry: er.EntityRegistry) -> list[dict[str, Any]]:
+    """Choose representations using registry relations, never names or areas.
+
+    Aliases identify replaced picker entries only. The bridge's controlled load
+    remains the explicit bridge_load snapshot, independent of physical input.
+    """
+    loads = {row["entity_id"]: row for row in rows if row["domain"] != "event"}
+    parents = {entity_id: entity_id for entity_id in loads}
+    wrappers = set()
+
+    def root(entity_id):
+        while parents[entity_id] != entity_id:
+            parents[entity_id] = parents[parents[entity_id]]
+            entity_id = parents[entity_id]
+        return entity_id
+
+    by_registry_id = {entry.id: entry.entity_id for entry in registry.entities.values()}
+    for entity_id, row in loads.items():
+        entry = registry.async_get(entity_id)
+        if row["domain"] != "light" or row.get("is_group") or entry.platform != "switch_as_x":
+            continue
+        options = entry.options.get("switch_as_x", entry.options.get("light", {}))
+        if not isinstance(options, dict) or options.get("invert") is not False:
+            continue
+        source_id = options.get("entity_id")
+        if not isinstance(source_id, str):
+            continue
+        source_id = by_registry_id.get(source_id, source_id)
+        source = loads.get(source_id)
+        if (source is None or source["domain"] != "switch" or source.get("is_group")
+                or registry.async_get(source_id).platform == "switch_as_x"):
+            continue
+        left, right = sorted((root(entity_id), root(source_id)))
+        parents[right] = left
+        wrappers.add(entity_id)
+
+    components: dict[str, list[str]] = {}
+    for entity_id in loads:
+        components.setdefault(root(entity_id), []).append(entity_id)
+    preferred = {key: min(ids, key=lambda item: (item not in wrappers, loads[item]["kind"] != "dimmer", item))
+                 for key, ids in components.items()}
+    device_components: dict[str, set[str]] = {}
+    for entity_id, row in loads.items():
+        entry = registry.async_get(entity_id)
+        if entry.device_id and not row.get("is_group") and entry.entity_category not in {"config", "diagnostic"}:
+            device_components.setdefault(entry.device_id, set()).add(root(entity_id))
+
+    controls: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if row["domain"] != "event":
+            continue
+        source = row["attributes"].get("bridge_source_device_id")
+        candidates = device_components.get(source, set())
+        key = None
+        if len(candidates) == 1:
+            key = next(iter(candidates))
+        elif not source:
+            load_id = row.get("load_entity_id")
+            key = root(load_id) if load_id in loads else None
+        if key is not None:
+            controls.setdefault(key, []).append(row)
+
+    result, replaced = {}, set()
+    for key, ids in components.items():
+        source_id = preferred[key]
+        source = loads[source_id]
+        linked = controls.get(key, [])
+        if len(linked) == 1:
+            choice = dict(linked[0])
+            suffix = "group, gestures" if source.get("is_group") else "gestures"
+            choice.update(friendly_name=f"{source['friendly_name']} ({suffix})", area_name=source["area_name"],
+                          source_entity_id=source_id, entity_aliases=sorted(ids))
+            if source.get("is_group"):
+                choice["is_group"] = True
+            result[choice["entity_id"]] = choice
+            replaced.update(ids)
+        else:
+            choice = dict(source)
+            aliases = sorted(set(ids) - {source_id})
+            if aliases:
+                choice["entity_aliases"] = aliases
+            result[source_id] = choice
+            replaced.update(set(ids) - {source_id})
+            # Several configured controls do not prove a single best one.
+            for control in linked:
+                result[control["entity_id"]] = dict(control, source_entity_id=source_id)
+    for row in rows:
+        if row["entity_id"] not in replaced:
+            result.setdefault(row["entity_id"], row)
+    return sorted(result.values(), key=lambda row: row["entity_id"])
 
 
 @callback
@@ -179,7 +331,7 @@ def build_catalog(hass: HomeAssistant) -> list[dict[str, Any]]:
     for entry in er.async_get(hass).entities.values():
         if (row := _catalog_row(hass, entry, hass.states.get(entry.entity_id))) is not None:
             rows.append(row)
-    return sorted(rows, key=lambda row: row["entity_id"])
+    return _preferred_rows(rows, er.async_get(hass))
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
@@ -194,11 +346,12 @@ class GestureCatalogSensor(SensorEntity):
     _attr_unique_id = CATALOG_UNIQUE_ID
     _attr_should_poll = False
     _attr_icon = "mdi:format-list-bulleted"
-    _unrecorded_attributes = frozenset({"catalog_entities"})
+    _unrecorded_attributes = frozenset({"catalog_entities", *(names_page_key(index) for index in range(1, NAMES_MAX_PAGES + 1))})
 
     def __init__(self) -> None:
         self._rows: list[dict[str, Any]] = []
         self._revision = ""
+        self._names: dict[str, Any] = {}
 
     @property
     def native_value(self) -> int:
@@ -207,7 +360,7 @@ class GestureCatalogSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"catalog_contract_version": CATALOG_VERSION, "catalog_revision": self._revision,
-                "catalog_entities": deepcopy(self._rows)}
+                "catalog_entities": deepcopy(self._rows), **deepcopy(self._names)}
 
     @callback
     def _refresh(self, *, write: bool = True) -> None:
@@ -216,11 +369,15 @@ class GestureCatalogSensor(SensorEntity):
         if revision == self._revision:
             return
         self._rows, self._revision = rows, revision
+        self._names = names_attributes(rows)
         if write:
             self.async_write_ha_state()
 
     @callback
     def _registry_changed(self, event: Event) -> None:
+        if (event.event_type == er.EVENT_ENTITY_REGISTRY_UPDATED
+                and event.data.get("entity_id", "").split(".", 1)[0] not in _STATE_DOMAINS):
+            return
         self._refresh()
 
     @callback

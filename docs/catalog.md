@@ -8,7 +8,13 @@ The sensor state is the number of catalog rows. Its attributes are:
 | --- | --- |
 | `catalog_contract_version` | Schema version, currently `1.0`. Consumers should reject unsupported major versions and ignore unfamiliar additive fields. |
 | `catalog_revision` | SHA-256 hash of the canonical row content. Changes only when projected metadata changes. |
-| `catalog_entities` | Deterministic list of records sorted by exact entity ID. |
+| `catalog_entities` | Preferred device records sorted by exact entity ID. Equivalent ordinary representations are replaced by their most capable entity. |
+| `catalog_names_version` | Additive names-only transport version, currently integer `1`. |
+| `catalog_names_revision` | SHA-256 hash of the names-only rows; unaffected by load state or capabilities. |
+| `catalog_names_total` | Number of names-only rows, equal to the sensor state/full catalog count. |
+| `catalog_names_pages` | Number of byte-bounded names pages (zero for an empty catalog or explicit error). |
+| `catalog_names_page_NNN` | A list of names-only rows for page `001` through `064`; only existing pages are published. |
+| `catalog_names_error` | Optional `record_too_large` or `catalog_limit`; the names projection is unavailable without truncation. |
 
 Each row has the following fields:
 
@@ -25,6 +31,9 @@ Each row has the following fields:
 | `available` | `true`, `false`, or `null`, corresponding to the availability enum. |
 | `ready` | Loads use the same nullable status as `available`. Gesture controls use a boolean: at least one input reports ready. |
 | `attributes` | Allowlisted typed capability metadata, described below. |
+| `entity_aliases` | Optional sorted entity IDs replaced by this preferred picker entry. These are selection aliases, not additional controlled loads. |
+| `source_entity_id` | Optional physical relay/light representation used for UI classification; independent of the controlled load. |
+| `is_group` | Optional `true` when actual registry/state data identifies a group. |
 
 Gesture rows additionally contain `bridge_control_id`, `load_entity_id`, and `load_domain`. The latter two are `null` when the control has no valid linked-load snapshot. Multiple controls may link to the same load; identities remain distinct.
 
@@ -42,14 +51,30 @@ Only `event` entities registered by `ha_gesture_bridge` with valid version-1 bri
 
 A gesture control may stay HA-available while its upstream sources are lost. The catalog therefore derives readiness from `bridge_sources`. Any ready source makes the control selectable as ready; a ready source with known available status establishes availability. When all reporting sources are unavailable, the row is unavailable. Sources that cannot prove physical availability retain `unknown`, even when their listeners are ready. A native event source can be ready before its first physical click.
 
+## Preferred device representation
+
+HA chooses the preferred entries using its entity and device registries. A verified, non-inverted switch-as-light wrapper replaces the underlying switch. A gesture control replaces the ordinary representations of its physical source when the source device has one unambiguous eligible load component. Configuration and diagnostic entities do not count as source-load candidates. The preferred gesture entry uses the physical source name and area and lists the replaced entity IDs in `entity_aliases`.
+
+The physical source association takes precedence over a separate linked HA target. A C4 light group controlled by a wall switch therefore remains a separate light entry. When no physical source relation is available, an explicit linked-load relation may consolidate that load with its gesture control. Groups are never inferred from names, and two independently addressable endpoints or several controls for one source remain separate when there is no unique preferred control.
+
+These are discovery decisions only. `source_entity_id` and aliases never invent or authorize an HA load: only `bridge_load` describes an explicitly configured controlled load. Consumers should validate the preferred entity against their current native discovery before applying aliases. If the preferred entity is missing or incompatible, retain the ordinary native selection.
+
 ## Updates and consumer behavior
 
 Entity, device, and area registry updates and relevant state changes refresh the catalog. Refreshing never calls a device service, creates a gesture, or changes an aggregate's event identity. The revision excludes event timestamps, gesture sequences, occurrence IDs, raw source payloads, brightness, and arbitrary attributes. Repeated physical gestures therefore do not churn discovery metadata.
 
-The live `catalog_entities` list is excluded from Recorder history to avoid large attribute records. The sensor count, contract version and revision remain recordable. Consumers read the current sensor attributes for discovery.
+The live `catalog_entities` list and all names-page attributes are excluded from Recorder history to avoid large attribute records. The sensor count, contract versions, revisions and small names manifest remain recordable. Consumers read the current sensor attributes for discovery.
 
 Keep manual exact entity ID entry available alongside a friendly-name picker. Show domain/area/ID where needed to disambiguate names, preserve unavailable existing selections, and refresh options from the catalog rather than silently replacing a selection. Treat capability and availability changes as metadata, never as button presses.
 
 The catalog contains household names and identifiers for authorized local discovery. Downloaded diagnostics intentionally contain anonymous counts and fixed categories: configured control/source counts, source types, linked load domains, invalid control count, aggregate/source readiness and availability counts, unmapped action count, and error count. Diagnostics omit all household IDs/names, mappings, topics, payloads, credentials, arbitrary metadata, and raw error text.
 
 Opt-in [latency acknowledgments](latency.md) additionally expose bounded numeric/UTC timestamp samples in downloaded diagnostics. They retain anonymous control indexes and gesture sequences for local correlation while still omitting household identifiers and payloads. These diagnostic timings are not added to the discovery catalog.
+
+## Bounded names transport
+
+Receivers needing only names/areas should first request the names manifest, then request one `catalog_names_page_NNN` attribute at a time together with the manifest. Each row contains `entity_id`, `domain`, `friendly_name` and nullable `area_name`, plus the optional `entity_aliases`, `source_entity_id` and `is_group` preference fields. Capability and live state payloads are omitted. Names are sorted by exact ID and are not shortened. Each page's compact, ASCII-escaped JSON occupies at most 16 KiB, leaving room for a 32 KiB proxy response envelope. The projection supports at most 10,000 rows, 64 pages and 512 KiB of compact names data; a larger record/projection reports an explicit error and retains the original full catalog.
+
+Validate the same names revision, total and page count on every response, reject duplicate/missing IDs, and publish only after all pages have passed validation. A rename or area edit during transfer invalidates the whole enrichment; a load merely turning on/off does not change the names revision. Empty catalogs use total zero and no pages. Errors or incompatible versions leave native discovery usable.
+
+The Control4 consumer releases each completed discovery snapshot before fetching the next page with the additive `HA_RELEASE_ENTITIES` command. Other consumers may continue reading `catalog_entities`. Both representations describe the same preferred choices and leave gesture/load authorization unchanged.
