@@ -117,3 +117,16 @@ prepare_device:
       description: Optional selected load entity registry identity, not an entity ID.
       selector:
         text:
+
+get_devices:
+  name: Read device picker
+  description: Admin-only read-only device descriptions. Returns only a revision confirmation when the supplied revision is unchanged.
+  fields:
+    revision:
+      selector:
+        text:
+    page:
+      selector:
+        number:
+          min: 1
+          max: 64

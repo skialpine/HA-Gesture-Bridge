@@ -89,6 +89,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     async_setup_leds(hass)
     from .preparation import async_setup_preparation
     async_setup_preparation(hass)
+    from .picker import async_setup_picker
+    async_setup_picker(hass)
     return True
 
 
