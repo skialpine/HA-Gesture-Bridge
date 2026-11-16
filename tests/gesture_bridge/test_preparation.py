@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from homeassistant.core import Context
-from homeassistant.exceptions import Unauthorized, ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, Unauthorized, ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import dt as dt_util
 import pytest
@@ -87,6 +87,50 @@ async def test_first_use_concurrency_restart_and_pinned_missing_native_state(has
     assert "gesture_sequence" not in hass.states.get(identity).attributes
     again = await prepare(hass, device, endpoint)
     assert again["gesture_entity_id"] == identity and len(entry.subentries) == 1
+
+
+async def test_manual_setup_during_preparation_reuses_its_control(hass, monkeypatch):
+    import custom_components.ha_gesture_bridge.preparation as preparation
+
+    entry = await install(hass)
+    device, _ = device_fixture(hass, entry)
+    entered, release = asyncio.Event(), asyncio.Event()
+    discover = preparation.discover_device
+
+    async def delayed_discovery(hass, device_id):
+        result = await discover(hass, device_id)
+        entered.set()
+        await release.wait()
+        return result
+
+    monkeypatch.setattr(preparation, "discover_device", delayed_discovery)
+    pending = asyncio.create_task(prepare(hass, device))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        form = await start_control(hass, entry, device)
+        saved = await hass.config_entries.subentries.async_configure(form["flow_id"], default_input(form))
+        assert saved["type"] == "create_entry" and len(entry.subentries) == 1
+    finally:
+        release.set()
+    result = await asyncio.wait_for(pending, 25)
+    await hass.async_block_till_done()
+    assert len(entry.subentries) == 1
+    control = next(iter(entry.subentries.values()))
+    assert result["control_id"] == control.unique_id
+    assert result["gesture_entity_id"] == er.async_get(hass).async_get_entity_id("event", DOMAIN, control.unique_id)
+    again = await prepare(hass, device)
+    assert again["control_id"] == result["control_id"] and len(entry.subentries) == 1
+
+
+async def test_temporary_trigger_provider_failure_reports_source_unavailable(hass, monkeypatch):
+    entry = await install(hass)
+    device = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id,
+        identifiers={("fixture_remote", "temporary")}, name="Remote", model="Remote")
+    monkeypatch.setattr("custom_components.ha_gesture_bridge.device_discovery.async_get_device_automations",
+                        AsyncMock(side_effect=HomeAssistantError("provider temporarily unavailable")))
+    with pytest.raises(ServiceValidationError, match="^source_metadata_unavailable$"):
+        await prepare(hass, device)
+    assert not entry.subentries
 
 
 async def test_load_only_and_cross_device_endpoint(hass):

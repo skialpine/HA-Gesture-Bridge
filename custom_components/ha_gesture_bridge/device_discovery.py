@@ -26,7 +26,14 @@ class UnsupportedDeviceConfiguration(ValueError):
 
 
 class SourceMetadataUnavailable(ValueError):
-    """An enabled native input exists but has not supplied capabilities yet."""
+    """Input capabilities or their provider are temporarily unavailable."""
+
+
+def valid_native_event_types(value):
+    """Accept a complete bounded action vocabulary for a pinned native input."""
+    return (isinstance(value, (list, tuple)) and 1 <= len(value) <= MAX_ACTIONS
+            and all(isinstance(item, str) and 1 <= len(item) <= 128
+                    and not any(ord(char) < 32 for char in item) for item in value))
 
 
 def _identity(prefix, value):
@@ -188,7 +195,7 @@ async def discover_device(hass, device_id: str) -> DeviceDiscovery:
         try:
             automations = await async_get_device_automations(hass, DeviceAutomationType.TRIGGER, [device_id])
         except HomeAssistantError as err:
-            raise ValueError("Device gesture provider is unavailable") from err
+            raise SourceMetadataUnavailable("Device gesture provider is unavailable") from err
         grouped = {}
         seen = set()
         for raw in automations.get(device_id, []):

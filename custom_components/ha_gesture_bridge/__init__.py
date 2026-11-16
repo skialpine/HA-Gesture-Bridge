@@ -11,6 +11,7 @@ from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er
 
 from .config import DOMAIN, NativeControlConfig
+from .device_discovery import valid_native_event_types
 from .entity_binding import RegistryEntityBinding
 from .latency import async_setup_latency
 from .leds import async_setup_leds
@@ -25,9 +26,7 @@ def watch_native_metadata(hass, entry, binding):
     def inspect(state, initial=False):
         nonlocal expected
         types = state.attributes.get("event_types") if state else None
-        if (not isinstance(types, (list, tuple)) or not 1 <= len(types) <= 256
-                or any(not isinstance(item, str) or not item or len(item) > 128
-                       or any(ord(char) < 32 for char in item) for item in types)):
+        if not valid_native_event_types(types):
             return
         types = list(types)
         changed = expected != types

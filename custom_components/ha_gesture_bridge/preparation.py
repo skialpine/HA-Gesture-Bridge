@@ -17,7 +17,10 @@ from homeassistant.helpers.service import async_register_admin_service
 
 from .config import DOMAIN, NativeControlConfig
 from .device_catalog import has_identifier, load_record, selected_endpoint
-from .device_discovery import DeviceDiscovery, DiscoveredButton, SourceMetadataUnavailable, _trigger_input, discover_device
+from .device_discovery import (
+    DeviceDiscovery, DiscoveredButton, SourceMetadataUnavailable, _trigger_input,
+    discover_device, valid_native_event_types,
+)
 from .gesture_profiles import native_action_definition
 
 AUTOMATIC = "automatic_sources"
@@ -83,8 +86,7 @@ def runtime_config(hass, data):
             entity_id = source.entity_id if source else binding["source_entity_id"]
             state = hass.states.get(entity_id) if source else None
             types = state.attributes.get("event_types") if state else None
-            if (not isinstance(types, (list, tuple)) or not 1 <= len(types) <= 256
-                    or any(not isinstance(item, str) or not item or len(item)>128 or any(ord(char)<32 for char in item) for item in types)):
+            if not valid_native_event_types(types):
                 types = binding["event_types"]
             provider = source.platform if source else binding.get("provider", "")
             actions = {action: native_action_definition(action, provider, types) for action in types}
@@ -167,10 +169,13 @@ class Preparation:
         if len(entries) != 1:
             raise ServiceValidationError("integration_unavailable")
         entry = entries[0]
-        existing = [item for item in entry.get_subentries_of_type("control") if item.data.get("source_device_id") == device_id]
-        if len(existing) > 1:
-            raise ServiceValidationError("conflicting_controls")
-        if existing:
+        def current_control():
+            existing = [item for item in entry.get_subentries_of_type("control")
+                        if item.data.get("source_device_id") == device_id]
+            if len(existing) > 1:
+                raise ServiceValidationError("conflicting_controls")
+            if not existing:
+                return None
             subentry = existing[0]
             if subentry.data.get("load_entity_id") and not subentry.data.get("load_registry_id"):
                 target = er.async_get(self.hass).async_get(subentry.data["load_entity_id"])
@@ -178,8 +183,14 @@ class Preparation:
                     self.hass.config_entries.async_update_subentry(entry, subentry,
                         data=dict(subentry.data) | {"load_registry_id": target.id})
             return subentry
+
+        if subentry := current_control():
+            return subentry
         try:
             discovery = await discover_device(self.hass, device_id)
+            # Manual HA setup can save this same device while a provider awaits.
+            if subentry := current_control():
+                return subentry
             if not discovery.buttons:
                 return None
             roles = default_roles(self.hass, discovery)
