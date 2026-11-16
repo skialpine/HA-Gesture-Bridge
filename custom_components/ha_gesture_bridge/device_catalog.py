@@ -38,8 +38,6 @@ def device_choices(hass):
             row = _catalog_row(hass, entity, hass.states.get(entity.entity_id))
             if row and not row.get("is_group"):
                 loads.append(row)
-    existing = {sub.data.get("source_device_id") for entry in hass.config_entries.async_entries(DOMAIN)
-                for sub in entry.get_subentries_of_type("control")}
     controls = {}
     for entry in hass.config_entries.async_entries(DOMAIN):
         for sub in entry.get_subentries_of_type("control"):
@@ -60,7 +58,7 @@ def device_choices(hass):
         # A reviewed candidate namespace is enough to offer inspection, never
         # enough to declare taps. Ordinary sensors/hubs are not remote choices.
         remote = bool(re.search(r"remote|keypad|controller|button|sensor_switch|ts004", device.model or "", re.I))
-        if not endpoints and device.id not in inputs and device.id not in existing and not remote:
+        if not endpoints and device.id not in inputs and device.id not in controls and not remote:
             continue
         area = ar.async_get(hass).async_get_area(device.area_id) if device.area_id else None
         name = (device.name_by_user or device.name or "HA Device")[:128]
@@ -72,7 +70,7 @@ def device_choices(hass):
                       "choice_id": f"device:{device.id}:{endpoint.id if endpoint else 'none'}",
                       "device_id": device.id, "name": label,
                       "kind": row["kind"] if row else "remote",
-                      "gestures": "confirmed" if device.id in existing else "candidate"}
+                      "gestures": "confirmed" if device.id in controls else "candidate"}
             matches = controls.get(device.id, [])
             if len(matches) == 1:
                 gesture_id = registry.async_get_entity_id("event", DOMAIN, matches[0].unique_id)
