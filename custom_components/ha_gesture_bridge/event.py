@@ -62,7 +62,8 @@ async def async_setup_platform(hass, config: dict[str, Any], async_add_entities:
 async def async_setup_entry(hass, entry, async_add_entities):
     """Create independently managed UI controls with stable subentry ownership."""
     for subentry in entry.get_subentries_of_type("control"):
-        config = NativeControlConfig.parse(dict(subentry.data))
+        from .preparation import runtime_config
+        config = NativeControlConfig.parse(runtime_config(hass, dict(subentry.data)))
         async_add_entities([GestureBridgeEvent(config)], config_subentry_id=subentry.subentry_id)
 
 

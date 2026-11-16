@@ -4,14 +4,14 @@
     "step": {
       "user": {
         "title": "HA Gesture Bridge",
-        "description": "Create one installation, then use Add control to configure independent paddles and remotes. No Control4 or DeviceSide installation is required.",
+        "description": "Add the integration once. Compatible consumers prepare a device when you select it; no separate gesture-control wizard is needed. Use Add control for advanced or HA-only setup, and Configure to customize an activated device.",
         "data": {
           "import_yaml": "Import currently loaded YAML controls into the UI"
         }
       }
     },
     "abort": {
-      "single_instance_allowed": "HA Gesture Bridge is already installed. Use Add control on its integration page."
+      "single_instance_allowed": "HA Gesture Bridge is already installed. Select a device in your consumer, or use Configure for an activated control."
     },
     "error": {
       "mqtt_not_configured": "Add and configure the MQTT integration first, then import these controls."

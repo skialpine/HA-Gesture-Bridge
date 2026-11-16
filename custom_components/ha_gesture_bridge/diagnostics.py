@@ -65,17 +65,20 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry) -> dict
     load_domains: Counter = Counter()
     configuration_errors = 0
     for data in controls:
-        count, kinds = _source_configuration(data)
+        from .preparation import runtime_config
+        resolved = dict(data)
+        try:
+            resolved = runtime_config(hass, data)
+            NativeControlConfig.parse(resolved)
+        except (ValueError, TypeError, KeyError):
+            configuration_errors += 1
+        count, kinds = _source_configuration(resolved)
         configured_sources += count
         source_types.update(kinds)
         target = data.get("load_entity_id")
         if isinstance(target, str):
             domain = target.split(".", 1)[0]
             load_domains[domain if domain in {"switch", "input_boolean", "light"} else "other"] += 1
-        try:
-            NativeControlConfig.parse(dict(data))
-        except (ValueError, TypeError):
-            configuration_errors += 1
     source_availability: Counter = Counter({"available": 0, "unavailable": 0, "unknown": 0})
     aggregate_count = ready_sources = source_errors = unmapped_count = error_count = 0
     for registry_entry in er.async_get(hass).entities.values():

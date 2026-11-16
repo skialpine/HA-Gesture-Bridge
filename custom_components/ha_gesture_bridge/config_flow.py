@@ -17,6 +17,7 @@ from . import enrich_native_sources
 from .config import DOMAIN, NativeControlConfig
 from .device_discovery import UnsupportedDeviceConfiguration, discover_device
 from .led_discovery import led_summary
+from .preparation import AUTOMATIC, automatic_record
 
 SUBENTRY_CONTROL = "control"
 DEVICE_SELECTOR = selector.DeviceSelector(selector.DeviceSelectorConfig())
@@ -170,7 +171,7 @@ class ControlSubentryFlow(ConfigSubentryFlow):
             schema[vol.Required(field, default=user_input.get(field, default))] = selector.SelectSelector(
                 selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.DROPDOWN))
         load = user_input.get("load_entity_id", self._existing.get("load_entity_id"))
-        schema[vol.Optional("load_entity_id", default=load) if load else vol.Optional("load_entity_id")] = LOAD_SELECTOR
+        schema[vol.Optional("load_entity_id", description={"suggested_value": load}) if load else vol.Optional("load_entity_id")] = LOAD_SELECTOR
         return self.async_show_form(step_id="review_leds" if self._configure_leds else "review",
             data_schema=vol.Schema(schema), errors={"base": error} if error else {},
             description_placeholders={"device": self._discovery.device_name,
@@ -223,6 +224,20 @@ class ControlSubentryFlow(ConfigSubentryFlow):
         data = enrich_native_sources(self.hass, clean_config(data))
         parsed = NativeControlConfig.parse(data)
         require_source_dependencies(self.hass, parsed)
+        if AUTOMATIC in self._existing:
+            from homeassistant.helpers import entity_registry as er
+            data = automatic_record(self._discovery, data["source_button_roles"], unique_id=self._identity,
+                name=self._name, load_entity_id=data.get("load_entity_id"), leds=data.get("leds"))
+            registry = er.async_get(self.hass)
+            for binding in data[AUTOMATIC]["bindings"]:
+                if binding["kind"] == "native":
+                    source = registry.async_get(binding["source_registry_id"])
+                    binding["provider"] = source.platform if source else ""
+            target = registry.async_get(data["load_entity_id"]) if data.get("load_entity_id") else None
+            if target:
+                data["load_registry_id"] = target.id
+            elif data.get("load_entity_id") == self._existing.get("load_entity_id") and self._existing.get("load_registry_id"):
+                data["load_registry_id"] = self._existing["load_registry_id"]
         entry = self._get_entry()
         if self._already_managed():
             return self.async_abort(reason="device_already_configured")

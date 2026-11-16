@@ -25,6 +25,10 @@ class UnsupportedDeviceConfiguration(ValueError):
     """The existing device exposes an input topology this bridge cannot map."""
 
 
+class SourceMetadataUnavailable(ValueError):
+    """An enabled native input exists but has not supplied capabilities yet."""
+
+
 def _identity(prefix, value):
     return prefix + hashlib.sha256(value.encode()).hexdigest()[:24]
 
@@ -120,9 +124,13 @@ def _native_buttons(hass, device_id):
         if entry.domain != "event" or entry.disabled_by is not None or entry.platform == "ha_gesture_bridge":
             continue
         state = hass.states.get(entry.entity_id)
-        if state is None or "bridge_contract_version" in state.attributes:
+        if state is not None and "bridge_contract_version" in state.attributes:
             continue
-        event_types = state.attributes.get("event_types")
+        event_types = state.attributes.get("event_types") if state else None
+        if not isinstance(event_types, (list, tuple)) or not event_types:
+            event_types = (entry.capabilities or {}).get("event_types")
+        if not event_types:
+            raise SourceMetadataUnavailable("Native input capabilities are not ready")
         if not isinstance(event_types, (list, tuple)) or not event_types or len(event_types) > MAX_ACTIONS:
             continue
         actions = {}
@@ -131,7 +139,7 @@ def _native_buttons(hass, device_id):
                 actions[action] = native_action_definition(action, entry.platform, event_types)
         if not actions:
             continue
-        label = (entry.name or entry.original_name or state.attributes.get("friendly_name") or entry.entity_id)[:128]
+        label = (entry.name or entry.original_name or (state.attributes.get("friendly_name") if state else None) or entry.entity_id)[:128]
         result.append(DiscoveredButton(_identity("button_", entry.id), label, _suggest(label), actions,
                                       entry.entity_id, entry.id))
     return result

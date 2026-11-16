@@ -19,20 +19,43 @@ Copy this repository’s `custom_components/ha_gesture_bridge` folder into your 
 
 </details>
 
-## Configure a device
+## Select a device
 
-Open **HA Gesture Bridge → Add control**, then:
+With the matching HA Coordinator, HA Switch or HA Light drivers, select the
+physical switch/light/remote in Composer **Actions → Select Device**. HA prepares
+its gestures and supported LEDs on first use. Browsing creates no gesture
+entities, attaches no input listeners and changes no device parameters.
+Ordinary loads without physical gestures use their existing entity directly.
 
-1. **Choose your device** from the list and select **Next**. Supported status indicators are discovered automatically. Leave **Customize LED mappings (advanced)** unchecked for normal setup.
-2. **Review the detected buttons, gestures and status indicators.** The integration finds the event entities or physical button triggers HA already exposes. It does not infer gestures from the light turning on or off.
-3. **Check the suggested control name.** For example, **Office Switch → Office Switch Gestures**. You can change it.
-4. **Check the button assignments.** Top, Bottom and Toggle connect the detected buttons to familiar C4 paddle events. Suggested assignments use the device’s button names; other buttons keep their original names.
-5. Leave **Linked switch or light** empty for gesture programming or a light connected through C4. Select a linked HA load only when your consumer needs its state and capabilities; linking it does not operate it automatically.
-6. Select **Save**.
+Automatic preparation requires an **admin HA access token** in the Coordinator.
+A permission error does not mean HA is disconnected. Native direct control
+without the companion keeps its existing permission requirements.
 
-The integration creates an entity such as `event.office_switch_gestures`. Use the actual entity ID shown by HA. Add the integration once, then use **Add control** for each additional device.
+An activated device keeps one event entity across restarts and can be reused
+by several consumers. No separate event entity selection is required. Devices
+that are never selected have no generated controls. Scene/button reporting must
+already be enabled in the device's own integration or manufacturer settings.
 
-There is no source-type menu or JSON mapping editor in normal setup. To change a device or its assignments, edit the control and follow the same device-and-review workflow.
+## Optional customization and advanced setup
+
+Use **Configure** on an activated control to edit its name, button assignments,
+linked HA light or unusual LED mappings. Known Zooz paddle layouts use verified
+Central Scene identities; unknown multi-button inputs keep their individual
+identities until you assign roles. Source ownership is preserved while metadata
+is temporarily unavailable. Saving an explicit reconfiguration can adopt a
+replacement source; a restart cannot do so silently.
+
+An explicitly linked HA light takes precedence over the physical relay and
+retains that choice across preparation/restarts. If the target is missing or
+unavailable, load commands are blocked. Clear the link explicitly to return to
+the selected physical endpoint. A bound C4 light remains controlled through
+Composer Controller Links and does not command the HA relay.
+
+**Add control** remains available for HA-only or advanced manual setup: choose
+a device, review the detected inputs, assign optional paddle roles, and save.
+Supported LEDs are automatic; Customize LED mappings is an exceptional override.
+Delete an activated control explicitly through HA if it is no longer used;
+disconnecting a C4 driver does not remove entities referenced by automations.
 
 ## Check the gestures
 

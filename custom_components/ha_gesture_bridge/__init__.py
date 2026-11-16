@@ -6,15 +6,46 @@ from copy import deepcopy
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er
 
 from .config import DOMAIN, NativeControlConfig
+from .entity_binding import RegistryEntityBinding
 from .latency import async_setup_latency
 from .leds import async_setup_leds
 
 PLATFORMS = [Platform.EVENT, Platform.SENSOR]
+
+
+def watch_native_metadata(hass, entry, binding):
+    """Regenerate a pinned recipe on capability changes, following registry renames."""
+    expected = binding["event_types"]
+
+    def inspect(state, initial=False):
+        nonlocal expected
+        types = state.attributes.get("event_types") if state else None
+        if (not isinstance(types, (list, tuple)) or not 1 <= len(types) <= 256
+                or any(not isinstance(item, str) or not item or len(item) > 128
+                       or any(ord(char) < 32 for char in item) for item in types)):
+            return
+        types = list(types)
+        changed = expected != types
+        expected = types
+        if changed and not initial:
+            hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
+
+    def baseline(target, state, initial, old):
+        inspect(state, initial)
+
+    @callback
+    def state_changed(event):
+        inspect(event.data.get("new_state"))
+
+    watcher = RegistryEntityBinding(hass, binding["source_entity_id"], binding["source_registry_id"],
+        state_changed, baseline, frozenset({"event"}))
+    entry.async_on_unload(watcher.close)
+    watcher.start()
 
 
 def enrich_native_sources(hass: HomeAssistant, data: dict) -> dict:
@@ -57,6 +88,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {}).setdefault("yaml_controls", {})
     async_setup_latency(hass)
     async_setup_leds(hass)
+    from .preparation import async_setup_preparation
+    async_setup_preparation(hass)
     return True
 
 
@@ -69,7 +102,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     for subentry in entry.get_subentries_of_type("control"):
         try:
             data = enrich_native_sources(hass, dict(subentry.data))
-            control = NativeControlConfig.parse(data)
+            from .preparation import runtime_config
+            control = NativeControlConfig.parse(runtime_config(hass, data))
         except (ValueError, TypeError) as error:
             raise ConfigEntryError(f"Invalid gesture control {subentry.title}: {error}") from error
         parsed_controls.append((subentry, control, data))
@@ -93,6 +127,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                          config_subentry_id=subentry.subentry_id)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+    # Only automatic native inputs need mapping regeneration. Physical presses
+    # keep the same event_types and do not reload or query a provider.
+    from .preparation import AUTOMATIC
+    bindings = [binding for subentry in entry.get_subentries_of_type("control")
+                for binding in subentry.data.get(AUTOMATIC, {}).get("bindings", [])
+                if binding.get("kind") == "native"]
+    for binding in bindings:
+        watch_native_metadata(hass, entry, binding)
     return True
 
 

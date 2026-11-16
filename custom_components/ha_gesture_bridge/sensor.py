@@ -34,16 +34,21 @@ def names_attributes(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """
     names = [{key: row[key] for key in ("entity_id", "domain", "friendly_name", "area_name",
               "entity_aliases", "source_entity_id", "is_group") if key in row} for row in rows]
-    encoded = [json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=True) for row in names]
+    return paged_attributes(names, "catalog_names")
+
+
+def paged_attributes(records, prefix):
+    """One bounded JSON paging policy for entity and physical-device views."""
+    encoded = [json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=True) for row in records]
     canonical = "[" + ",".join(encoded) + "]"
-    result = {"catalog_names_version": 1, "catalog_names_revision": sha256(canonical.encode()).hexdigest(),
-              "catalog_names_total": len(names), "catalog_names_pages": 0}
-    if len(names) > 10000 or len(canonical) > NAMES_MAX_BYTES:
-        return result | {"catalog_names_error": "catalog_limit"}
+    result = {prefix + "_version": 1, prefix + "_revision": sha256(canonical.encode()).hexdigest(),
+              prefix + "_total": len(records), prefix + "_pages": 0}
+    if len(records) > 10000 or len(canonical) > NAMES_MAX_BYTES:
+        return result | {prefix + "_error": "catalog_limit"}
     pages, page, size = [], [], 2
-    for row, raw in zip(names, encoded, strict=True):
+    for row, raw in zip(records, encoded, strict=True):
         if len(raw) + 2 > NAMES_PAGE_BYTES:
-            return result | {"catalog_names_error": "record_too_large"}
+            return result | {prefix + "_error": "record_too_large"}
         addition = len(raw) + bool(page)
         if page and size + addition > NAMES_PAGE_BYTES:
             pages.append(page)
@@ -53,9 +58,9 @@ def names_attributes(rows: list[dict[str, Any]]) -> dict[str, Any]:
     if page:
         pages.append(page)
     if len(pages) > NAMES_MAX_PAGES:
-        return result | {"catalog_names_error": "catalog_limit"}
-    result["catalog_names_pages"] = len(pages)
-    return result | {names_page_key(index): page for index, page in enumerate(pages, 1)}
+        return result | {prefix + "_error": "catalog_limit"}
+    result[prefix + "_pages"] = len(pages)
+    return result | {f"{prefix}_page_{index:03d}": page for index, page in enumerate(pages, 1)}
 
 _LIGHT_MODES = frozenset({"onoff", "brightness", "color_temp", "hs", "xy", "rgb", "rgbw", "rgbww", "white"})
 _DIMMABLE_MODES = _LIGHT_MODES - {"onoff"}
@@ -346,12 +351,14 @@ class GestureCatalogSensor(SensorEntity):
     _attr_unique_id = CATALOG_UNIQUE_ID
     _attr_should_poll = False
     _attr_icon = "mdi:format-list-bulleted"
-    _unrecorded_attributes = frozenset({"catalog_entities", *(names_page_key(index) for index in range(1, NAMES_MAX_PAGES + 1))})
+    _unrecorded_attributes = frozenset({"catalog_entities", *(names_page_key(index) for index in range(1, NAMES_MAX_PAGES + 1)),
+        *(f"catalog_devices_page_{index:03d}" for index in range(1, NAMES_MAX_PAGES + 1))})
 
     def __init__(self) -> None:
         self._rows: list[dict[str, Any]] = []
         self._revision = ""
         self._names: dict[str, Any] = {}
+        self._devices: dict[str, Any] = {}
 
     @property
     def native_value(self) -> int:
@@ -360,16 +367,20 @@ class GestureCatalogSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"catalog_contract_version": CATALOG_VERSION, "catalog_revision": self._revision,
-                "catalog_entities": deepcopy(self._rows), **deepcopy(self._names)}
+                "catalog_entities": deepcopy(self._rows), **deepcopy(self._names), **deepcopy(self._devices)}
 
     @callback
     def _refresh(self, *, write: bool = True) -> None:
+        from .device_catalog import device_choices
+        choices = device_choices(self.hass)
+        devices = paged_attributes(choices, "catalog_devices")
         rows = build_catalog(self.hass)
         revision = sha256(json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
-        if revision == self._revision:
+        if revision == self._revision and devices == self._devices:
             return
         self._rows, self._revision = rows, revision
         self._names = names_attributes(rows)
+        self._devices = devices
         if write:
             self.async_write_ha_state()
 

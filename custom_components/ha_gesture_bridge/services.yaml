@@ -104,3 +104,16 @@ set_led:
             - follow_load_inverted
             - always_on
             - always_off
+
+prepare_device:
+  name: Prepare device
+  description: Admin-only first-use preparation. Creates or reuses gesture support without operating the device.
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+    source_registry_id:
+      description: Optional selected load entity registry identity, not an entity ID.
+      selector:
+        text:
