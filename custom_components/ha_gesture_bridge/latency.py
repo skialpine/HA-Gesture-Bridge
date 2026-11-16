@@ -48,10 +48,10 @@ ACK_SCHEMA = vol.Schema({
     vol.Required("bridge_session_id"): vol.All(str, vol.Match(r"^[A-Za-z0-9_-]{1,128}$")),
     vol.Required("gesture_sequence"): _sequence,
     vol.Required("receiver"): vol.All(str, vol.Match(r"^[A-Za-z0-9:_-]{1,128}$")),
-    vol.Required("c4_received_epoch_ms"): _number,
-    vol.Required("c4_processed_epoch_ms"): _number,
-    vol.Optional("c4_forwarded_epoch_ms"): _number,
-    vol.Required("c4_processing_ms"): vol.All(_number, vol.Range(max=60000)),
+    vol.Required("receiver_received_epoch_ms"): _number,
+    vol.Required("receiver_processed_epoch_ms"): _number,
+    vol.Optional("receiver_forwarded_epoch_ms"): _number,
+    vol.Required("receiver_processing_ms"): vol.All(_number, vol.Range(max=60000)),
 })
 
 
@@ -110,22 +110,22 @@ class LatencyTracker:
             raise ServiceValidationError("This receiver already acknowledged the gesture")
         if len(record["receivers"]) >= MAX_RECEIVERS:
             raise ServiceValidationError("Too many receivers acknowledged this gesture")
-        received, processed = data["c4_received_epoch_ms"], data["c4_processed_epoch_ms"]
-        forwarded = data.get("c4_forwarded_epoch_ms")
+        received, processed = data["receiver_received_epoch_ms"], data["receiver_processed_epoch_ms"]
+        forwarded = data.get("receiver_forwarded_epoch_ms")
         record["receivers"].add(receiver)
         sample = {"gesture_sequence": data["gesture_sequence"],
                   "ha_published_utc": record["published_utc"],
                   "ha_ack_received_utc": dt_util.utcnow().isoformat(timespec="milliseconds"),
                   "round_trip_ms": round((now - record["monotonic"]) * 1000, 3),
-                  "c4_received_epoch_ms": received, "c4_processed_epoch_ms": processed,
-                  "c4_processing_ms": data["c4_processing_ms"]}
+                  "receiver_received_epoch_ms": received, "receiver_processed_epoch_ms": processed,
+                  "receiver_processing_ms": data["receiver_processing_ms"]}
         # UTC may step independently of the receiver's monotonic processing
         # timer. Keep the evidence and flag the mismatch without affecting RTT.
-        if (abs(processed - received - data["c4_processing_ms"]) > 5
+        if (abs(processed - received - data["receiver_processing_ms"]) > 5
                 or forwarded is not None and not received <= forwarded <= processed):
-            sample["c4_clock_discontinuity"] = True
+            sample["receiver_clock_discontinuity"] = True
         if forwarded is not None:
-            sample["c4_forwarded_epoch_ms"] = forwarded
+            sample["receiver_forwarded_epoch_ms"] = forwarded
         self.samples.append((entity.config.control_id, sample))
         # Only fixed numeric/timestamp diagnostic fields enter the log. Entity,
         # control/session/receiver IDs, names and source payloads are omitted.

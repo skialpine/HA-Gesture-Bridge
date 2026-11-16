@@ -1,14 +1,16 @@
 # Gesture latency diagnostics
 
-HA Gesture Bridge 0.1.1 adds an optional acknowledgment action for receivers.
+HA Gesture Bridge 0.1.2 adds an optional acknowledgment action for receivers.
 Normal event publication and load behavior do not wait for acknowledgments, retry
 missing ones, or depend on them. Older receivers ignore the additive capability
 flag; receivers must leave acknowledgment traffic disabled during normal use.
 
 A configured C4 receiver with **Debug Mode = On** and **Latency Diagnostics = On**
 can acknowledge each newly accepted live gesture after processing/forwarding it.
-The gesture event advertises `bridge_acknowledgment_supported: true` so a receiver
-can avoid calling an action an older component does not implement. Initial state,
+The gesture event advertises the integer `bridge_acknowledgment_version: 2`.
+Receivers must require this exact version before using the generic `receiver_*`
+fields. The earlier boolean capability is no longer advertised, so its receivers
+do not call an action with an incompatible schema. Initial state,
 snapshots, duplicates and rejected events are not latency samples.
 
 ## What is measured
@@ -27,9 +29,9 @@ nor when a physical light visibly responds after a command.
 The sample also retains HA publish/ack receipt UTC timestamps and the C4 receive,
 processed and optional forwarded UTC epoch-millisecond values. Those timestamps
 help correlate logs; subtracting timestamps from different machines assumes their
-clocks agree. The separate `c4_processing_ms` value is a receiver-reported local
-duration. A discrepancy with its C4 UTC timestamp interval is flagged as
-`c4_clock_discontinuity`, while the HA-clock round trip remains useful.
+clocks agree. The separate `receiver_processing_ms` value is a receiver-reported local
+duration. A discrepancy with its receiver UTC timestamp interval is flagged as
+`receiver_clock_discontinuity`, while the HA-clock round trip remains useful.
 
 ## Read results
 
@@ -60,13 +62,13 @@ entity_id: event.office_switch_gestures
 bridge_session_id: 0123456789abcdef0123456789abcdef
 gesture_sequence: 14
 receiver: control4:123
-c4_received_epoch_ms: 1794729172042
-c4_processed_epoch_ms: 1794729172048
-c4_forwarded_epoch_ms: 1794729172047
-c4_processing_ms: 6
+receiver_received_epoch_ms: 1794729172042
+receiver_processed_epoch_ms: 1794729172048
+receiver_forwarded_epoch_ms: 1794729172047
+receiver_processing_ms: 6
 ```
 
-`c4_forwarded_epoch_ms` is optional and must be omitted when no connected-light
+`receiver_forwarded_epoch_ms` is optional and must be omitted when no connected-light
 command was sent, such as a double-tap used only for programming. UTC values are
 finite non-negative milliseconds; processing duration is limited to 60 seconds.
 No clock-dependent diagnostic value grants gesture validity or load capabilities.

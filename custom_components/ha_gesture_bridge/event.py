@@ -108,7 +108,7 @@ class GestureBridgeEvent(EventEntity):
                 "bridge_session_id": self._session_id, "bridge_update_kind": self._update_kind,
                 "bridge_buttons": self.config.buttons(), "bridge_sources": sources,
                 "bridge_load": self._load_snapshot(), "bridge_unmapped_count": self._unmapped_count,
-                "bridge_error_count": self._error_count, "bridge_acknowledgment_supported": True}
+                "bridge_error_count": self._error_count, "bridge_acknowledgment_version": 2}
 
     def _load_snapshot(self) -> dict[str, Any] | None:
         if (target := self.config.load_entity_id) is None:

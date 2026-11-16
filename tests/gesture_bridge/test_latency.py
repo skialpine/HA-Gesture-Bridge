@@ -42,8 +42,8 @@ async def press(hass):
 def payload(entity):
     return {"entity_id": entity.entity_id, "bridge_session_id": entity._session_id,
             "gesture_sequence": entity._sequence, "receiver": "control4:123",
-            "c4_received_epoch_ms": 1794729172042, "c4_processed_epoch_ms": 1794729172048,
-            "c4_forwarded_epoch_ms": 1794729172047, "c4_processing_ms": 6}
+            "receiver_received_epoch_ms": 1794729172042, "receiver_processed_epoch_ms": 1794729172048,
+            "receiver_forwarded_epoch_ms": 1794729172047, "receiver_processing_ms": 6}
 
 
 async def ack(hass, data):
@@ -54,13 +54,14 @@ async def test_ack_round_trip_ignores_clock_offsets_and_never_publishes_state(ha
     clock = [100.0]
     monkeypatch.setattr(latency, "monotonic", lambda: clock[0])
     entity, tracker = await setup(hass)
-    assert hass.states.get(entity.entity_id).attributes["bridge_acknowledgment_supported"] is True
+    assert hass.states.get(entity.entity_id).attributes["bridge_acknowledgment_version"] == 2
+    assert "bridge_acknowledgment_supported" not in hass.states.get(entity.entity_id).attributes
     assert not tracker.pending and not tracker.samples  # A snapshot isn't a publication.
     await press(hass)
     before = hass.states.get(entity.entity_id)
     published = before.attributes["gesture_occurred_at"]
     clock[0] += .023
-    # C4's clock is deliberately unrelated to HA's current UTC clock.
+    # The receiver's clock is deliberately unrelated to HA's current UTC clock.
     data = payload(entity)
     with caplog.at_level(logging.INFO, logger="custom_components.ha_gesture_bridge.latency"):
         await ack(hass, data)
@@ -69,8 +70,8 @@ async def test_ack_round_trip_ignores_clock_offsets_and_never_publishes_state(ha
     sample = tracker.samples[0][1]
     assert sample["round_trip_ms"] == 23
     assert sample["ha_published_utc"] == published
-    assert sample["c4_forwarded_epoch_ms"] == data["c4_forwarded_epoch_ms"]
-    assert sample["c4_processing_ms"] == 6
+    assert sample["receiver_forwarded_epoch_ms"] == data["receiver_forwarded_epoch_ms"]
+    assert sample["receiver_processing_ms"] == 6
     assert "Gesture latency acknowledgment" in caplog.text
     with pytest.raises(ServiceValidationError, match="already acknowledged"):
         await ack(hass, data)
@@ -103,11 +104,11 @@ async def test_ack_rejects_wrong_expired_removed_events_and_bounds_history(hass,
         await press(hass)
         data = payload(entity)
         # Programming-only gestures have no controller-forward timestamp.
-        data.pop("c4_forwarded_epoch_ms")
+        data.pop("receiver_forwarded_epoch_ms")
         await ack(hass, data)
     assert len(tracker.pending) == latency.MAX_PENDING
     assert len(tracker.samples) == latency.MAX_SAMPLES
-    assert all("c4_forwarded_epoch_ms" not in sample for _, sample in tracker.samples)
+    assert all("receiver_forwarded_epoch_ms" not in sample for _, sample in tracker.samples)
     data = payload(entity)
     await entity.async_remove()
     with pytest.raises(ServiceValidationError, match="not currently loaded"):
@@ -121,20 +122,20 @@ async def test_ack_preserves_wall_clock_steps_but_uses_monotonic_round_trip(hass
     entity, tracker = await setup(hass)
     await press(hass)
     data = payload(entity)
-    # A C4 NTP step must not destroy the reliable HA-clock RTT measurement.
-    data["c4_processed_epoch_ms"] -= 1000
+    # A receiver NTP step must not destroy the reliable HA-clock RTT measurement.
+    data["receiver_processed_epoch_ms"] -= 1000
     clock[0] += .042
     await ack(hass, data)
     sample = tracker.samples[0][1]
     assert sample["round_trip_ms"] == 42
-    assert sample["c4_clock_discontinuity"] is True
-    assert sample["c4_processed_epoch_ms"] == data["c4_processed_epoch_ms"]
+    assert sample["receiver_clock_discontinuity"] is True
+    assert sample["receiver_processed_epoch_ms"] == data["receiver_processed_epoch_ms"]
 
 
-@pytest.mark.parametrize("change", [{"gesture_sequence": True}, {"c4_processing_ms": -1},
-    {"c4_received_epoch_ms": float("nan")}, {"c4_processed_epoch_ms": float("inf")},
-    {"c4_received_epoch_ms": 10**400},
-    {"c4_forwarded_epoch_ms": True}, {"receiver": "private payload with whitespace"}])
+@pytest.mark.parametrize("change", [{"gesture_sequence": True}, {"receiver_processing_ms": -1},
+    {"receiver_received_epoch_ms": float("nan")}, {"receiver_processed_epoch_ms": float("inf")},
+    {"receiver_received_epoch_ms": 10**400},
+    {"receiver_forwarded_epoch_ms": True}, {"receiver": "private payload with whitespace"}])
 async def test_service_schema_rejects_invalid_diagnostic_values(hass, change):
     entity, tracker = await setup(hass)
     await press(hass)

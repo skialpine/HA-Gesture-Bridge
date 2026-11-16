@@ -30,31 +30,31 @@ acknowledge:
       required: true
       selector:
         text:
-    c4_received_epoch_ms:
-      name: C4 receive UTC epoch milliseconds
+    receiver_received_epoch_ms:
+      name: Receiver receive UTC epoch milliseconds
       required: true
       selector:
         number:
           min: 0
           max: 9007199254740991
           mode: box
-    c4_processed_epoch_ms:
-      name: C4 processed UTC epoch milliseconds
+    receiver_processed_epoch_ms:
+      name: Receiver processed UTC epoch milliseconds
       required: true
       selector:
         number:
           min: 0
           max: 9007199254740991
           mode: box
-    c4_forwarded_epoch_ms:
-      name: C4 forwarded UTC epoch milliseconds
+    receiver_forwarded_epoch_ms:
+      name: Receiver forwarded UTC epoch milliseconds
       selector:
         number:
           min: 0
           max: 9007199254740991
           mode: box
-    c4_processing_ms:
-      name: C4 processing milliseconds
+    receiver_processing_ms:
+      name: Receiver processing milliseconds
       required: true
       selector:
         number:
