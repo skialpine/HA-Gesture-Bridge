@@ -1,81 +1,71 @@
 # HA Gesture Bridge
 
-Normalize physical switch, dimmer and remote gestures into one Home Assistant event entity per control. Use the events in HA automations or the Control4 HA Switch/Dimmer drivers. No Control4 or DeviceSide installation is required.
+Pick a switch, dimmer or remote from Home Assistant and make its reported button gestures available to HA automations and compatible Control4 drivers. Each configured device gets one gesture event entity.
 
-This integration builds on [DeviceSide](https://github.com/DeviceSide/DeviceSide), the upstream project by [jasonmx](https://github.com/jasonmx) and its contributors. Thank you to the DeviceSide contributors for the foundation and design ideas. DeviceSide’s Git history and original MIT copyright notice are preserved. Gesture modules remain independent and can be offered back to DeviceSide later. See [upstream attribution and ancestry](UPSTREAM.md).
-
-## Run alongside DeviceSide
-
-Both integrations can be installed at once. DeviceSide retains its `deviceside` domain and command services; this integration owns `ha_gesture_bridge` controls, events and its catalog. It does not register or remove DeviceSide services, patch DeviceSide, run dimming loops or automatically operate linked loads. They interact only through automations you explicitly configure. Avoid assigning the same gesture/load response in two automations if you want only one action.
+**Requires Home Assistant 2026.11.1 or newer.** Connect the device to HA first and enable its scene or button reporting if required by its manufacturer.
 
 ## Install
 
-Requires **Home Assistant 2026.11.1 or newer**. This is a development integration; fixture coverage and hardware evidence are listed separately below.
+1. Open **Settings → Marketplace → Add from link**.
+2. Paste `https://github.com/skialpine/HA-Gesture-Bridge`.
+3. Install **HA Gesture Bridge** and **restart Home Assistant**.
+4. Open **Settings → Devices & services → Integrations → Add integration**.
+5. Search for **HA Gesture Bridge** and add it.
 
-### Marketplace custom repository
+<details>
+<summary>Manual installation</summary>
 
-Open **Settings > Marketplace > Add from link**, enter `https://github.com/skialpine/HA-Gesture-Bridge`, and install **HA Gesture Bridge**. Follow any restart request, then open **Settings > Devices & services > Add integration > HA Gesture Bridge**. Updating an already loaded development copy requires an HA restart to activate its new code.
+Copy this repository’s `custom_components/ha_gesture_bridge` folder into your HA configuration directory, so `/config/custom_components/ha_gesture_bridge/manifest.json` exists. Restart HA, then follow steps 4–5 above.
 
-The repository metadata is still named `hacs.json`; Marketplace retains that filename.
+</details>
 
-It is a custom repository, not a claim of inclusion in the default Marketplace catalog. Native C4 discovery and ordinary direct switch/dimmer control continue to work without this integration.
+## Configure a device
 
-### Manual installation
+Open **HA Gesture Bridge → Add control**, then:
 
-Build `dist/ha_gesture_bridge.zip` with `python3 tools/build_integration.py`. Extract it inside HA's `custom_components` directory, producing `custom_components/ha_gesture_bridge/manifest.json`. Restart HA after installation, then add the integration as above. Do not install the repository's tests or C4 driver packages into HA.
+1. **Choose your device** from the list and select **Next**. Supported status indicators are discovered automatically. Leave **Customize LED mappings (advanced)** unchecked for normal setup.
+2. **Review the detected buttons, gestures and status indicators.** The integration finds the event entities or physical button triggers HA already exposes. It does not infer gestures from the light turning on or off.
+3. **Check the suggested control name.** For example, **Office Switch → Office Switch Gestures**. You can change it.
+4. **Check the button assignments.** Top, Bottom and Toggle connect the detected buttons to familiar C4 paddle events. Suggested assignments use the device’s button names; other buttons keep their original names.
+5. Leave **Linked switch or light** empty for gesture programming or a light connected through C4. Select a linked HA load only when your consumer needs its state and capabilities; linking it does not operate it automatically.
+6. Select **Save**.
 
-## Configure controls
+The integration creates an entity such as `event.office_switch_gestures`. Use the actual entity ID shown by HA. Add the integration once, then use **Add control** for each additional device.
 
-Add the installation once, then add a **Control** from its integration card. Choose a name, source mode and optional linked load (`switch`, `input_boolean` or `light`). The UI assigns an immutable control identity. For native event sources, select the top/bottom event entities. The native profile uses event types those entities actually advertise; manual mappings are available for other names and buttons.
+There is no source-type menu or JSON mapping editor in normal setup. To change a device or its assignments, edit the control and follow the same device-and-review workflow.
 
-Advanced source configuration covers native/shared event entities, raw Z-Wave Central Scene, ZHA, MQTT/Zigbee2MQTT and other HA bus events. See [source mappings](docs/sources.md). MQTT uses HA's configured MQTT integration; the bridge never opens a second broker connection. No experimental Zigbee2MQTT event entities are required.
+## Check the gestures
 
-The linked load supplies independent state/capability snapshots. A gesture does not automatically switch it. Controls without loads are supported. Physical smart-bulb/relay decoupling remains a device setting; the integration does not change it.
+Press each button and try a double tap. In **Tools → States**, find the new gesture entity. Its event timestamp should update, and attributes such as `button_id`, `event_type` and `press_count` identify the action. A double tap reports `press_count: 2` when the device supports it.
 
-### Existing development YAML
+## Use the gestures
 
-Existing `event: - platform: ha_gesture_bridge` configurations remain supported. Keep the same unique control ID and top/bottom IDs when expanding a control or importing it through the UI. The import path preserves the aggregate entity registry identity and avoids duplicate subscriptions. After importing, remove the corresponding legacy YAML entry when convenient; do not leave a second independently configured control for the same physical input.
+**Home Assistant:** use the new event entity in an automation. The [automation examples](docs/automations.md) show how to act on fresh gestures without replaying startup history.
 
-## Events and capabilities
+**Control4:** select the gesture control using **Actions → Select Device** in the compatible HA Switch or HA Light driver, then choose its Operation Mode:
 
-A control publishes reported single/double/triple/higher taps, hold start/repeat, release and mapped custom actions. Only configured source-supported gestures are declared. Completed taps do not imply physical pushed/released edges. Restored events, retained MQTT actions, availability changes and linked-load updates are snapshots; they never generate a fresh physical gesture.
+- **Programming Events Only** for Composer button-event programming.
+- **Control Connected C4 Light** to operate an existing C4 light through HA Light’s Top/Bottom/Toggle **Controller Links**.
+- **Control HA Device with Button Events** for gestures plus an explicitly linked HA load.
 
-The original switch/input_boolean contract remains **1.0**. Light-linked controls use additive **1.1** metadata for brightness and light capabilities. Stable control/button/gesture IDs preserve consumer programming across display changes. See [wire contract](docs/gesture-contract.md) and [catalog](docs/catalog.md).
+For smart bulbs or a separate C4 light, configure the wall switch’s smart-bulb or detached mode according to its manufacturer’s instructions.
 
-Delivery is live and best effort. Gestures during an outage are not replayed. Missing release reporting cannot be repaired by inventing releases; timeout cleanup clears hold bookkeeping only.
+## Optional indicator LEDs
 
-## Automations and DeviceSide
+Status indicators are discovered automatically through the standard Z-Wave Indicator command class and supported device profiles, including Zooz LED configuration controls. The review screen shows what is supported. On/off, brightness and colors are exposed only when the device and its discovery path provide them; an identification blink alone does not provide a status LED. No LED commands run during setup or restart.
 
-[Examples](docs/automations.md) show double-tap scene handling and separate hold/release automations calling DeviceSide's `raise_brightness`, `lower_brightness` and `stop` for supported targets. DeviceSide remains optional; installing this bridge does not extend its device compatibility. For a light already represented in Control4, the C4 consumer can instead forward through its Button Link connections.
+In the C4 driver, **Properties → LED Behavior** controls the indicator independently of color. **Use Device Setting** is the default. HA Light also supports **Follow Bound Device** for a connected C4 light. Setting a color preserves the device’s LED mode.
 
-## Latency diagnostics
+Automatic profiles include Zooz ZEN26/27/30/32/71/72/76/77/78 and the listed GE/Jasco models. Multi-button controls export each input separately, and compatible C4 LED commands can select every indicator. See the [supported device table and LED setup guide](docs/leds.md).
 
-Optional receiver acknowledgments measure a publish-to-ack round trip on HA's monotonic clock, while retaining HA/C4 timestamps for log correlation. Normal operation sends no acknowledgments. See [latency diagnostics](docs/latency.md) for activation, measurement limits and the action contract.
+For a device outside automatic support, **Customize LED mappings (advanced)** provides an explicit override.
 
-## Compatibility evidence
+## Updates and troubleshooting
 
-| Interface | Automated evidence | Physical evidence |
-| --- | --- | --- |
-| Native HA event entities | Repeated presses, separate/shared sources, restore, availability and linked-load snapshots | CHV Zooz ZEN76: original upper double/triple HA proof; expanded UI control now reaches C4 Dimmer for top/bottom singles, holds/releases and bottom double-tap programming |
-| Z-Wave Central Scene | Manufacturer-independent action/filter fixtures | Pending |
-| ZHA | Explicit command/argument fixtures | Pending |
-| MQTT / Zigbee2MQTT | Fresh/retained messages, payload mapping and availability fixtures | Pending |
-| Generic HA bus | Declarative identity/action mapping fixtures | Pending |
+Install Marketplace updates and restart HA. Existing controls normally keep their entity IDs and assignments.
 
-Declared capabilities and passing fixtures do not verify every model, firmware or radio implementation. Collect diagnostics from the integration card for source readiness/configuration problems; exported diagnostics omit household identifiers and payloads.
+- **Integration missing:** restart HA, refresh the browser and search under Add integration. For a manual install, check the folder path above.
+- **No buttons detected:** check the physical device’s HA integration and enable its event entities or scene reporting. Automatic discovery needs event entities or supported physical device triggers. [Source support and advanced configuration](docs/sources.md) covers exceptions.
+- **C4 does not respond:** check the selected gesture entity, Operation Mode, Coordinator connection and Controller Link bindings.
 
-## Development
-
-```sh
-uv venv --python 3.14 .venv
-uv pip install --python .venv/bin/python -r requirements-test.txt
-.venv/bin/python -m pytest -q
-.venv/bin/python -m tools.validate_gesture_contract
-.venv/bin/python tools/build_integration.py
-```
-
-HA-only checks need no consumer checkout. To run actual producer publications through C4's Lua consumers, explicitly set `C4_HA_SWITCH_CHECKOUT=/path/to/Control4-HA-Switch` and install LuaJIT and/or Lua. The consumer repository retains its own schema/fixtures, Lua runtime checks and packaging checks.
-
-The original DeviceSide checkout, existing C4 identities and Coordinator family APIs are unchanged. See [contributing](CONTRIBUTING.md) for stable identity and source-adapter rules.
-
-The upstream [DeviceSide audit-code skill](.agents/skills/audit-code/SKILL.md) is included for development reviews.
+Based on [DeviceSide/DeviceSide](https://github.com/DeviceSide/DeviceSide) by jasonmx and its contributors. See [credits](UPSTREAM.md) and [LICENSE](LICENSE).
