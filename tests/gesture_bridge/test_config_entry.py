@@ -11,7 +11,7 @@ from types import MappingProxyType
 from homeassistant.components.event import EventEntity
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState, SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.exceptions import ConfigEntryError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_component import DATA_INSTANCES, EntityComponent
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -34,6 +34,46 @@ async def create_installation(hass, import_yaml=False):
     entry = result["result"]
     assert entry.state is ConfigEntryState.LOADED
     return entry
+
+
+def source_device(hass, entry):
+    device = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id,
+        identifiers={("fixture_paddles", "desk")}, name="Desk Paddle")
+    entity = er.async_get(hass).async_get_or_create("event", "fixture_paddles", "desk-upper",
+        device_id=device.id, original_name="Upper paddle", suggested_object_id="fixture_desk_upper")
+    hass.states.async_set(entity.entity_id, "unknown", {"event_types": ["KeyPressed"]})
+    return device
+
+
+def review_defaults(flow):
+    return flow["data_schema"]({})
+
+
+@pytest.mark.asyncio
+async def test_yaml_platform_metadata_import_keeps_entity_identity_and_friendly_editing(hass):
+    hass.states.async_set(YAML_CONTROL["source_entity_id"], "unknown", {"event_types": ["KeyPressed"]})
+    platform_config = deepcopy(YAML_CONTROL) | {"entity_namespace": "legacy", "scan_interval": timedelta(seconds=30)}
+    assert await async_setup_component(hass, "event", {"event": [platform_config]})
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("event", DOMAIN, YAML_CONTROL["unique_id"])
+    assert entity_id is not None
+    entry = await create_installation(hass, import_yaml=True)
+    control = next(iter(entry.subentries.values()))
+    assert registry.async_get_entity_id("event", DOMAIN, control.unique_id) == entity_id
+    assert not {"platform", "entity_namespace", "scan_interval"} & control.data.keys()
+    original = hass.data[DOMAIN]["yaml_controls"][control.unique_id]["config"]
+    assert original["scan_interval"] == timedelta(seconds=30)
+    result = await hass.config_entries.subentries.async_init((entry.entry_id, "control"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": control.subentry_id})
+    device = source_device(hass, entry)
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], {"device_id": device.id})
+    assert result["step_id"] == "review" and "configuration" not in review_defaults(result)
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], review_defaults(result))
+    assert not {"platform", "entity_namespace", "scan_interval"} & control.data.keys()
+    assert result["type"] == "abort" and result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert registry.async_get_entity_id("event", DOMAIN, control.unique_id) == entity_id
 
 
 @pytest.mark.asyncio
@@ -104,10 +144,10 @@ async def test_import_loaded_yaml_preserves_entity_identity_and_single_listener(
 @pytest.mark.asyncio
 async def test_add_edit_remove_controls_reload_actual_event_platform(hass):
     entry = await create_installation(hass)
-    hass.states.async_set("event.source", "unknown", {"event_types": ["single"]})
+    device = source_device(hass, entry)
     flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"), context={"source": SOURCE_USER})
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"name": "Desk Paddle", "source_type": "native_event"})
-    await hass.config_entries.subentries.async_configure(flow["flow_id"], {"top_entity_id": "event.source"})
+    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"device_id": device.id})
+    await hass.config_entries.subentries.async_configure(flow["flow_id"], review_defaults(flow) | {"name": "Desk Paddle"})
     await hass.async_block_till_done()
     control = next(iter(entry.subentries.values()))
     registry = er.async_get(hass)
@@ -129,18 +169,12 @@ async def test_add_edit_remove_controls_reload_actual_event_platform(hass):
 
 
 @pytest.mark.asyncio
-async def test_import_another_yaml_control_from_existing_installation(hass):
+async def test_initial_import_keeps_existing_yaml_source_identity(hass):
     assert await async_setup_component(hass, "event", {"event": [deepcopy(YAML_CONTROL)]})
     await hass.async_block_till_done()
-    entry = await create_installation(hass)
     registry = er.async_get(hass)
     original_id = registry.async_get_entity_id("event", DOMAIN, "office_existing")
-    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"), context={"source": SOURCE_USER})
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"name": "Ignored import name", "source_type": "import_yaml"})
-    assert flow["step_id"] == "import_yaml"
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"control": "office_existing"})
-    assert flow["type"] == "create_entry"
-    await hass.async_block_till_done()
+    entry = await create_installation(hass, import_yaml=True)
     assert len(entry.subentries) == 1
     assert registry.async_get_entity_id("event", DOMAIN, "office_existing") == original_id
     assert registry.async_get(original_id).config_entry_id == entry.entry_id
@@ -187,7 +221,7 @@ async def test_imported_control_diagnostics_follow_current_ui_not_retained_yaml(
 
 
 @pytest.mark.asyncio
-async def test_import_yaml_mqtt_validation_retains_selector_and_retries(hass, monkeypatch):
+async def test_initial_yaml_mqtt_validation_retries_without_partial_migration(hass, monkeypatch):
     from homeassistant.components import mqtt
 
     data = {"platform": DOMAIN, "unique_id": "existing_mqtt", "name": "Existing MQTT",
@@ -200,20 +234,11 @@ async def test_import_yaml_mqtt_validation_retains_selector_and_retries(hass, mo
     registry = er.async_get(hass)
     entity_id = registry.async_get_entity_id("event", DOMAIN, "existing_mqtt")
     assert entity_id and hass.states.get(entity_id) is not None
-    entry = await create_installation(hass)
-    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"), context={"source": SOURCE_USER})
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"name": "Import", "source_type": "import_yaml"})
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"control": "existing_mqtt"})
+    flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    flow = await hass.config_entries.flow.async_configure(flow["flow_id"], {"import_yaml": True})
     assert flow["type"] == "form" and flow["errors"] == {"base": "mqtt_not_configured"}
-    field = next(iter(flow["data_schema"].schema))
-    assert field.schema == "control" and field.default() == "existing_mqtt"
-    assert flow["data_schema"].schema[field].config["options"] == [
-        {"value": "existing_mqtt", "label": "Existing MQTT"}]
-    assert not entry.subentries and entry.data["imported_yaml"] == []
+    assert not hass.config_entries.async_entries(DOMAIN)
     assert registry.async_get(entity_id).config_entry_id is None
-
-    # Only the broker boundary is replaced; the flow, entity migration, registry
-    # ownership and config-entry reload below all use HA's actual machinery.
     hass.config.components.add("mqtt")
     monkeypatch.setattr(mqtt, "is_connected", lambda _: False)
     subscriptions = []
@@ -221,127 +246,11 @@ async def test_import_yaml_mqtt_validation_retains_selector_and_retries(hass, mo
         subscriptions.append(topic)
         return lambda: None
     monkeypatch.setattr(mqtt, "async_subscribe", subscribe)
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"control": "existing_mqtt"})
+    flow = await hass.config_entries.flow.async_configure(flow["flow_id"], {"import_yaml": True})
     assert flow["type"] == "create_entry"
     await hass.async_block_till_done()
+    entry = flow["result"]
     assert len(entry.subentries) == 1 and entry.data["imported_yaml"] == ["existing_mqtt"]
     assert registry.async_get_entity_id("event", DOMAIN, "existing_mqtt") == entity_id
     assert registry.async_get(entity_id).config_entry_id == entry.entry_id
     assert subscriptions == ["remote/action"]
-
-
-async def test_relabel_and_reorder_keep_registered_control_and_gesture_identities(hass, monkeypatch):
-    now, ticks = dt_util.utcnow(), count()
-    monkeypatch.setattr(dt_util, "utcnow", lambda: now + timedelta(milliseconds=next(ticks)))
-    for source in ("event.upper", "event.lower"):
-        hass.states.async_set(source, "unknown", {"event_types": ["KeyPressed2x"]})
-    entry = await create_installation(hass)
-    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"), context={"source": SOURCE_USER})
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"name": "Office", "source_type": "native_event"})
-    await hass.config_entries.subentries.async_configure(flow["flow_id"], {
-        "top_entity_id": "event.upper", "bottom_entity_id": "event.lower"})
-    await hass.async_block_till_done()
-    control = next(iter(entry.subentries.values()))
-    registry = er.async_get(hass)
-    entity_id = registry.async_get_entity_id("event", DOMAIN, control.unique_id)
-    registered_id = registry.async_get(entity_id).id
-    hass.states.async_set("event.upper", dt_util.utcnow().isoformat(), {"event_type": "KeyPressed2x"})
-    await hass.async_block_till_done()
-    original = hass.states.get(entity_id)
-    assert original.attributes["gesture_sequence"] == 1
-
-    changed = deepcopy(dict(control.data))
-    changed["buttons"].reverse()
-    for button in changed["buttons"]:
-        button["label"] = "Lower Paddle" if button["id"] == "bottom" else "Upper Paddle"
-        button["actions"]["KeyPressed2x"]["label"] = "Scene Double Tap"
-    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"),
-        context={"source": SOURCE_RECONFIGURE, "subentry_id": control.subentry_id})
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {
-        "name": "Renamed Office", "source_type": "advanced"})
-    flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"configuration": json.dumps(changed)})
-    assert flow["type"] == "abort"
-    await hass.async_block_till_done()
-    current = hass.states.get(entity_id)
-    validate_state(current.as_dict())
-    assert registry.async_get_entity_id("event", DOMAIN, control.unique_id) == entity_id
-    assert registry.async_get(entity_id).id == registered_id
-    assert current.attributes["friendly_name"] == "Renamed Office"
-    assert current.attributes["bridge_control_id"] == original.attributes["bridge_control_id"]
-    assert current.attributes["bridge_update_kind"] == "snapshot"
-    assert current.state == original.state
-    assert current.attributes["gesture_event_id"] == original.attributes["gesture_event_id"]
-    assert current.attributes["bridge_session_id"] != original.attributes["bridge_session_id"]
-    assert [(button["id"], button["label"]) for button in current.attributes["bridge_buttons"]] == [
-        ("bottom", "Lower Paddle"), ("top", "Upper Paddle")]
-    assert all(button["gestures"] == [{"id": "press_2", "kind": "press", "label": "Scene Double Tap", "press_count": 2}]
-               for button in current.attributes["bridge_buttons"])
-
-    hass.states.async_set("event.lower", dt_util.utcnow().isoformat(), {"event_type": "KeyPressed2x"})
-    await hass.async_block_till_done()
-    fresh = hass.states.get(entity_id)
-    validate_state(fresh.as_dict())
-    assert fresh.attributes["button_id"] == "bottom" and fresh.attributes["gesture_id"] == "press_2"
-    assert fresh.attributes["gesture_sequence"] == 1
-    assert fresh.attributes["gesture_session_id"] == current.attributes["bridge_session_id"]
-
-
-async def test_multiple_live_controls_keep_gestures_holds_loads_and_status_independent(hass, monkeypatch):
-    now, ticks = dt_util.utcnow(), count()
-    monkeypatch.setattr(dt_util, "utcnow", lambda: now + timedelta(milliseconds=next(ticks)))
-    entry = await create_installation(hass)
-    for name in ("one", "two", "three"):
-        hass.states.async_set(f"event.{name}", "unknown", {
-            "event_types": ["KeyPressed2x", "KeyHeldDown", "KeyReleased"]})
-        hass.states.async_set(f"switch.{name}", "off")
-        flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"), context={"source": SOURCE_USER})
-        flow = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"name": name, "source_type": "native_event"})
-        await hass.config_entries.subentries.async_configure(flow["flow_id"], {
-            "top_entity_id": f"event.{name}", "load_entity_id": f"switch.{name}"})
-        await hass.async_block_till_done()
-    registry = er.async_get(hass)
-    identities = {control.title: registry.async_get_entity_id("event", DOMAIN, control.unique_id)
-                  for control in entry.subentries.values()}
-
-    def states():
-        current = {name: hass.states.get(entity_id) for name, entity_id in identities.items()}
-        for state in current.values():
-            validate_state(state.as_dict())
-        return current
-
-    initial = states()
-    assert len({state.attributes["bridge_session_id"] for state in initial.values()}) == 3
-    assert all("gesture_sequence" not in state.attributes for state in initial.values())
-    for action in ("KeyHeldDown", "KeyHeldDown"):
-        hass.states.async_set("event.one", dt_util.utcnow().isoformat(), {"event_type": action})
-        await hass.async_block_till_done()
-    first = states()
-    assert first["one"].attributes["gesture_sequence"] == 2
-    assert first["one"].attributes["event_type"] == "hold_repeat"
-    assert first["two"] is initial["two"] and first["three"] is initial["three"]
-    for name in ("two", "three"):
-        hass.states.async_set(f"event.{name}", dt_util.utcnow().isoformat(), {"event_type": "KeyPressed2x"})
-        await hass.async_block_till_done()
-    before = states()
-    assert before["one"] is first["one"]
-    assert before["two"].attributes["gesture_sequence"] == before["three"].attributes["gesture_sequence"] == 1
-    assert len({state.attributes["gesture_event_id"] for state in before.values()}) == 3
-
-    hass.states.async_set("switch.one", "unavailable")
-    hass.states.async_set("event.two", "unavailable")
-    await hass.async_block_till_done()
-    changed = states()
-    assert changed["one"].attributes["bridge_load"]["available"] is False
-    assert changed["one"].attributes["bridge_sources"][0]["ready"] is True
-    assert changed["two"].attributes["bridge_sources"][0]["ready"] is False
-    assert changed["two"].attributes["bridge_load"]["available"] is True
-    assert changed["three"] is before["three"]
-    assert all(changed[name].attributes["gesture_event_id"] == state.attributes["gesture_event_id"]
-               and changed[name].state == state.state for name, state in before.items())
-    hass.states.async_set("event.one", dt_util.utcnow().isoformat(), {"event_type": "KeyReleased"})
-    await hass.async_block_till_done()
-    final = states()
-    assert final["one"].attributes["gesture_sequence"] == 3
-    assert final["one"].attributes["event_type"] == "release"
-    assert final["one"].attributes["bridge_load"]["available"] is False
-    assert final["two"] is changed["two"] and final["three"] is changed["three"]

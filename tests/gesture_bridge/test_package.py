@@ -14,9 +14,14 @@ def test_deterministic_standalone_package(tmp_path):
         manifest = json.loads(package.read("ha_gesture_bridge/manifest.json"))
         assert manifest["domain"] == "ha_gesture_bridge"
         assert manifest["config_flow"] is True
+        # HA's Integrations page excludes helper-classified entries. Controls
+        # are managed as subentries of this service, like DeviceSide.
+        assert manifest["integration_type"] == "service"
         assert "deviceside" not in manifest.get("dependencies", [])
         assert manifest["requirements"] == []
-        for name in ["config_flow.py", "event.py", "sensor.py", "diagnostics.py", "latency.py", "services.yaml", "strings.json", "translations/en.json", "brand/icon.png"]:
+        assert "zwave_js" in manifest["after_dependencies"]
+        assert "zwave_js" not in manifest.get("dependencies", [])  # Optional for other protocols.
+        for name in ["config_flow.py", "event.py", "sensor.py", "diagnostics.py", "latency.py", "led_discovery.py", "led_profiles.py", "zwave_parameters.py", "zwave_indicator.py", "services.yaml", "strings.json", "translations/en.json", "brand/icon.png"]:
             assert "ha_gesture_bridge/" + name in expected
     hacs = json.loads((ROOT / "hacs.json").read_text())
     assert hacs["name"] == "HA Gesture Bridge"

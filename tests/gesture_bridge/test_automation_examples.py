@@ -1,11 +1,13 @@
 """Execute the HA-only example with the real automation and EventEntity APIs."""
 import json
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 from homeassistant.components.event import EventEntity
 from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 import yaml
 
 from custom_components.ha_gesture_bridge.config import NativeControlConfig
@@ -62,14 +64,16 @@ async def test_double_tap_example_accepts_repeats_but_not_snapshots_or_restore(h
     assert len(calls) == 2
 
 
-async def test_deviceside_example_only_sends_start_and_reported_stop(hass):
+async def test_deviceside_example_only_sends_start_and_reported_stop(hass, monkeypatch):
+    instant = [dt_util.utcnow()]
+    monkeypatch.setattr(dt_util, "utcnow", lambda: instant[0])
+
     class HoldPaddle(EventEntity):
         _attr_event_types = ["held", "release"]
         def __init__(self, name):
             self._attr_name = name
         async def press(self, action):
-            import asyncio
-            await asyncio.sleep(0.002)
+            instant[0] += timedelta(milliseconds=100)
             self._trigger_event(action)
             self.async_write_ha_state()
             await self.hass.async_block_till_done()

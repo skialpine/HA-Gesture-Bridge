@@ -242,6 +242,9 @@
         "bridge_control_id": {
           "$ref": "#/$defs/identity"
         },
+        "bridge_source_device_id": {
+          "$ref": "#/$defs/identity"
+        },
         "bridge_session_id": {
           "$ref": "#/$defs/identity"
         },

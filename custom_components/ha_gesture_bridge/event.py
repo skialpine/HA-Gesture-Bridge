@@ -19,6 +19,8 @@ from homeassistant.util import dt as dt_util
 from .config import CONTRACT_VERSION, DOMAIN, NativeControlConfig
 from .sources import SourceAdapter
 from .latency import async_setup_latency
+from .leds import LEDController
+from .led_discovery import create_led_controller
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +35,9 @@ PLATFORM_SCHEMA = EVENT_PLATFORM_SCHEMA.extend({
     vol.Optional("buttons"): list,
     vol.Optional("sources"): list,
     vol.Optional("load_entity_id"): cv.entity_id,
+    vol.Optional("leds"): list,
+    vol.Optional("source_device_id"): cv.string,
+    vol.Optional("source_button_roles"): dict,
 })
 
 
@@ -79,6 +84,7 @@ class GestureBridgeEvent(EventEntity):
         self._session_id = uuid4().hex
         self._sequence = 0
         self._update_kind = "snapshot"
+        self._leds = None
 
     @property
     def _source_ready(self) -> bool:
@@ -104,11 +110,16 @@ class GestureBridgeEvent(EventEntity):
                                      else adapter.error)
                 sources.append(item)
         version = "1.1" if self.config.load_entity_id and self.config.load_entity_id.startswith("light.") else CONTRACT_VERSION
-        return {"bridge_contract_version": version, "bridge_control_id": self.config.control_id,
+        result = {"bridge_contract_version": version, "bridge_control_id": self.config.control_id,
                 "bridge_session_id": self._session_id, "bridge_update_kind": self._update_kind,
                 "bridge_buttons": self.config.buttons(), "bridge_sources": sources,
                 "bridge_load": self._load_snapshot(), "bridge_unmapped_count": self._unmapped_count,
                 "bridge_error_count": self._error_count, "bridge_acknowledgment_version": 2}
+        if self.config.source_device_id:
+            result["bridge_source_device_id"] = self.config.source_device_id
+        if self._leds is not None:
+            result.update(bridge_led_version=1, bridge_led_command_version=2, bridge_leds=self._leds.snapshot())
+        return result
 
     def _load_snapshot(self) -> dict[str, Any] | None:
         if (target := self.config.load_entity_id) is None:
@@ -144,6 +155,14 @@ class GestureBridgeEvent(EventEntity):
         # old adapters have been closed by removal callbacks; discard them so
         # readiness metadata and ownership checks contain only live adapters.
         self._adapters.clear()
+        self._leds = None
+        if self.config.leds:
+            self._leds = LEDController(self.hass, self, self.config.leds, self._snapshot)
+        elif self.config.source_device_id:
+            self._leds = create_led_controller(self.hass, self, self.config.source_device_id, self._snapshot)
+        if self._leds is not None:
+            self._leds.start()
+            self.async_on_remove(self._leds.close)
         tracker = async_setup_latency(self.hass)
         tracker.register(self)
         self.async_on_remove(lambda: tracker.unregister(self))

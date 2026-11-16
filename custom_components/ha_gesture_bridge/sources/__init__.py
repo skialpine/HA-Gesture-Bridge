@@ -86,6 +86,16 @@ class SourceAdapter:
             self.native_binding = binding
             binding.start()
             self._unsubs.append(binding.close)
+        elif kind == "ha_device_trigger":
+            from .device_trigger import DeviceTriggerBinding
+            binding = DeviceTriggerBinding(self.hass, self.config,
+                lambda identity: self._consume({"trigger_id": identity}),
+                lambda: self._set_status(False, "unavailable", "device_unavailable"))
+            self._unsubs.append(binding.close)
+            started = await binding.async_start()
+            if not self._closed:
+                self._set_status(started, "unknown" if started else "unavailable",
+                    None if started else "device_trigger_unavailable", publish=False)
         elif kind == "mqtt":
             # The existing HA MQTT integration owns credentials, transport and reconnects.
             from homeassistant.components import mqtt
@@ -94,6 +104,13 @@ class SourceAdapter:
                 return
             try:
                 self._connected = mqtt.is_connected(self.hass)
+                if not self._mqtt_device_valid():
+                    self._set_status(False, "unavailable", "mqtt_device_changed", publish=False)
+                    return
+                if self.config.device_trigger_refs:
+                    from homeassistant.helpers import device_registry as dr
+                    self._unsubs.append(self.hass.bus.async_listen(dr.EVENT_DEVICE_REGISTRY_UPDATED,
+                                                                  self._mqtt_device_changed))
                 self._unsubs.append(await mqtt.async_subscribe(self.hass, self.config.topic, self._mqtt, qos=0))
                 if self.config.availability_topic:
                     self._unsubs.append(await mqtt.async_subscribe(self.hass, self.config.availability_topic, self._mqtt_availability, qos=0))
@@ -117,10 +134,23 @@ class SourceAdapter:
         self._connected = connected
         if not connected:
             self._set_status(False, "unavailable", "mqtt_disconnected")
+        elif not self._mqtt_device_valid():
+            self._set_status(False, "unavailable", "mqtt_device_changed")
         elif self.config.availability_topic:
             self._set_status(False, "unknown")
         else:
             self._set_status(True, "unknown")
+
+    def _mqtt_device_valid(self):
+        if not self.config.device_trigger_refs:
+            return True
+        from ..mqtt_device import references_match
+        return references_match(self.hass, self.config.device_trigger_refs, self.config.topic)
+
+    @callback
+    def _mqtt_device_changed(self, _event):
+        if not self._closed and not self._mqtt_device_valid():
+            self._set_status(False, "unavailable", "mqtt_device_changed")
 
     def _native_status(self, state, initial=False):
         if state is not None and "bridge_contract_version" in state.attributes:
@@ -190,6 +220,11 @@ class SourceAdapter:
             return
         if self.config.availability_topic and not self.ready:
             return
+        if not self._mqtt_device_valid():
+            self._set_status(False, "unavailable", "mqtt_device_changed")
+            return
+        if self.config.device_trigger_refs and not self.ready and not self.config.availability_topic:
+            self._set_status(True, "unknown", publish=False)
         payload = message.payload
         if isinstance(payload, bytes):
             try:
@@ -197,6 +232,9 @@ class SourceAdapter:
             except UnicodeDecodeError:
                 return
         if not isinstance(payload, str) or len(payload) > 65536:
+            return
+        if self.config.raw_payload:
+            self._consume({"payload": payload})
             return
         try:
             data = json.loads(payload)
@@ -209,6 +247,9 @@ class SourceAdapter:
     @callback
     def _mqtt_availability(self, message):
         if self._closed or not self._connected:
+            return
+        if not self._mqtt_device_valid():
+            self._set_status(False, "unavailable", "mqtt_device_changed")
             return
         payload = message.payload
         if isinstance(payload, bytes):

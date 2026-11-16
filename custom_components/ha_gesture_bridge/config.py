@@ -10,30 +10,17 @@ fewer actions must supply explicit mappings rather than assume that profile.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
+import json
 import re
 from typing import Any
 
 DOMAIN = "ha_gesture_bridge"
 CONTRACT_VERSION = "1.0"
 KINDS = frozenset({"press", "hold_start", "hold_repeat", "release", "custom"})
-MAX_EXACT_INTEGER = 2**53 - 1
-KEY = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
-IDENTITY = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
-ENTITY = re.compile(r"([a-z_]+)\.[a-z0-9_]+\Z")
-
-
-def text(value: Any, label: str, pattern: re.Pattern | None = None) -> str:
-    if not isinstance(value, str) or not value.strip() or len(value) > 128:
-        raise ValueError(f"{label} must be a non-empty string of at most 128 characters")
-    if pattern and not pattern.fullmatch(value):
-        raise ValueError(f"Invalid {label}")
-    return value
-
-
-def entity_id(value: Any, domains: set[str]) -> str:
-    if not isinstance(value, str) or not (match := ENTITY.fullmatch(value)) or match[1] not in domains:
-        raise ValueError(f"Expected an entity in {', '.join(sorted(domains))}")
-    return value
+from .config_values import ENTITY, IDENTITY, KEY, MAX_EXACT_INTEGER, entity_id, text
+from .led_config import LEDConfig, parse_leds
+from .gesture_profiles import is_physical_device_trigger
 
 
 @dataclass(frozen=True)
@@ -74,6 +61,20 @@ class Gesture:
         return result
 
 
+def _validate_button_gestures(actions: dict[str, Gesture]) -> None:
+    """Apply the same gesture identity rules to every source declaration shape."""
+    capabilities: dict[str, Gesture] = {}
+    for gesture in actions.values():
+        if gesture.id in capabilities and capabilities[gesture.id] != gesture:
+            raise ValueError("Conflicting declarations for the same gesture ID")
+        capabilities[gesture.id] = gesture
+    if sum(gesture.kind == "hold_repeat" for gesture in capabilities.values()) > 1:
+        raise ValueError("Only one hold repeat declaration is supported per button")
+    if (any(gesture.kind == "hold_start" for gesture in capabilities.values())
+            and "hold_repeat" in capabilities and capabilities["hold_repeat"].kind != "hold_repeat"):
+        raise ValueError("hold_repeat identity is reserved for repeating held notifications")
+
+
 @dataclass(frozen=True)
 class NativeButtonConfig:
     id: str
@@ -90,17 +91,7 @@ class NativeButtonConfig:
         if not isinstance(raw_actions, dict) or not raw_actions:
             raise ValueError("At least one action mapping is required")
         actions = {text(action, "source action"): Gesture.parse(value) for action, value in raw_actions.items()}
-        capabilities: dict[str, Gesture] = {}
-        for gesture in actions.values():
-            if gesture.id in capabilities and capabilities[gesture.id] != gesture:
-                raise ValueError("Conflicting declarations for the same gesture ID")
-            capabilities[gesture.id] = gesture
-        repeats = [gesture for gesture in capabilities.values() if gesture.kind == "hold_repeat"]
-        if len(repeats) > 1:
-            raise ValueError("Only one hold repeat declaration is supported per button")
-        if any(gesture.kind == "hold_start" for gesture in capabilities.values()) and not repeats:
-            if "hold_repeat" in capabilities:
-                raise ValueError("hold_repeat identity is reserved for repeating held notifications")
+        _validate_button_gestures(actions)
         return cls(text(data.get("id"), "button ID", KEY), text(data.get("label"), "button label"),
                    entity_id(data.get("source_entity_id"), {"event"}), actions,
                    text(data["source_registry_id"], "source registry ID", IDENTITY) if "source_registry_id" in data else None)
@@ -129,11 +120,28 @@ class NativeControlConfig:
 
     source_buttons: tuple[NativeButtonConfig, ...] = ()
     source_configs: tuple[SourceConfig, ...] = ()
+    leds: tuple[LEDConfig, ...] = ()
+    source_device_id: str | None = None
 
     @classmethod
     def parse(cls, data: dict[str, Any]) -> NativeControlConfig:
         if not isinstance(data, dict):
             raise ValueError("A native control must be a mapping")
+        if set(data) - {"unique_id", "name", "source_entity_id", "source_registry_id", "button_id",
+                        "button_label", "actions", "buttons", "sources", "load_entity_id",
+                        "platform", "entity_namespace", "scan_interval", "leds", "source_device_id", "source_button_roles"}:
+            raise ValueError("Unknown control configuration field")
+        if "source_device_id" in data:
+            text(data["source_device_id"], "HA device ID", IDENTITY)
+        if "source_button_roles" in data:
+            roles = data["source_button_roles"]
+            if not isinstance(roles, dict) or not 1 <= len(roles) <= 32:
+                raise ValueError("Detected button roles must contain 1 to 32 assignments")
+            for identity, role in roles.items():
+                text(identity, "detected button ID", KEY); text(role, "button role", KEY)
+            if len(set(roles.values())) != len(roles):
+                raise ValueError("Detected button roles must be distinct")
+        leds = parse_leds(data.get("leds", []))
         if "sources" in data:
             if any(key in data for key in ("buttons", "source_entity_id", "source_registry_id", "button_id", "button_label", "actions")):
                 raise ValueError("sources cannot be mixed with legacy native source fields")
@@ -141,6 +149,10 @@ class NativeControlConfig:
             if not isinstance(raw, list) or not 1 <= len(raw) <= 32:
                 raise ValueError("sources must contain 1 to 32 sources")
             sources = tuple(SourceConfig.parse(source) for source in raw)
+            attached_triggers = [json.dumps(trigger.config, sort_keys=True, separators=(",", ":"))
+                                 for source in sources for trigger in source.device_triggers]
+            if len(set(attached_triggers)) != len(attached_triggers):
+                raise ValueError("The same HA device trigger cannot be subscribed more than once")
             if len({source.id for source in sources}) != len(sources):
                 raise ValueError("Source IDs must be unique")
             native_ids = [source.source_entity_id for source in sources if source.source_entity_id]
@@ -164,7 +176,7 @@ class NativeControlConfig:
             return cls(text(data.get("unique_id"), "control identity", IDENTITY), text(data.get("name"), "control name"),
                        first.source_entity_id, first.id, first.label, first.actions,
                        entity_id(load, {"switch", "input_boolean", "light"}) if load is not None else None,
-                       buttons, sources)
+                       buttons, sources, leds=leds, source_device_id=data.get("source_device_id"))
         if "buttons" in data:
             if any(key in data for key in ("source_entity_id", "source_registry_id", "button_id", "button_label", "actions")):
                 raise ValueError("buttons cannot be mixed with legacy source/action fields")
@@ -189,7 +201,8 @@ class NativeControlConfig:
         first = buttons[0]
         return cls(text(data.get("unique_id"), "control identity", IDENTITY),
             text(data.get("name"), "control name"), first.source_entity_id, first.id, first.label, first.actions,
-            entity_id(load, {"switch", "input_boolean", "light"}) if load is not None else None, buttons)
+            entity_id(load, {"switch", "input_boolean", "light"}) if load is not None else None, buttons,
+            leds=leds, source_device_id=data.get("source_device_id"))
 
     @property
     def inputs(self) -> tuple[NativeButtonConfig, ...]:
@@ -227,6 +240,41 @@ class SourceMapping:
     gesture: Gesture
 
 
+@dataclass(frozen=True)
+class DeviceTriggerConfig:
+    id: str
+    config: dict[str, Any]
+
+
+def _device_triggers(raw, device_id):
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 256:
+        raise ValueError("Device sources require 1 to 256 reported triggers")
+    result, identities, configs = [], set(), set()
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != {"id", "config"}:
+            raise ValueError("Each device trigger needs an ID and HA trigger configuration")
+        identity = text(item["id"], "trigger ID", KEY)
+        config = item["config"]
+        if (identity in identities or not isinstance(config, dict) or config.get("platform") != "device"
+                or config.get("device_id") != device_id or not isinstance(config.get("domain"), str)
+                or not re.fullmatch(r"[a-z_]+", config["domain"]) or config["domain"] == "mqtt"):
+            raise ValueError("Device trigger identity must belong to the selected HA device")
+        if not is_physical_device_trigger(config):
+            raise ValueError("Only physical button/remote input triggers are supported")
+        try:
+            encoded = json.dumps(config, allow_nan=False, sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError, RecursionError) as err:
+            raise ValueError("Device trigger must contain JSON configuration") from err
+        if len(encoded) > 8192:
+            raise ValueError("Device trigger configuration is too large")
+        if encoded in configs:
+            raise ValueError("The same HA device trigger cannot be subscribed more than once")
+        configs.add(encoded)
+        identities.add(identity)
+        result.append(DeviceTriggerConfig(identity, deepcopy(config)))
+    return tuple(result)
+
+
 def _filters(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, dict) or len(value) > 32:
         raise ValueError(f"{label} must be a mapping of at most 32 field paths")
@@ -261,6 +309,9 @@ class SourceConfig:
     payload_not_available: str = "offline"
     inactivity_timeout: float | None = None
     source_registry_id: str | None = None
+    device_triggers: tuple[DeviceTriggerConfig, ...] = ()
+    raw_payload: bool = False
+    device_trigger_refs: tuple[dict, ...] = ()
 
     @classmethod
     def parse(cls, data: Any) -> SourceConfig:
@@ -268,14 +319,14 @@ class SourceConfig:
             raise ValueError("A source must be a mapping")
         allowed = {"id", "type", "buttons", "mappings", "filters", "source_entity_id", "event_type", "topic",
                    "availability_topic", "payload_available", "payload_not_available", "inactivity_timeout", "source_registry_id",
-                   "device_id", "actions", "button_id", "button_label"}
+                   "device_id", "actions", "button_id", "button_label", "triggers", "raw_payload", "device_trigger_refs"}
         if set(data) - allowed:
             raise ValueError("Unknown source configuration field")
         kind = data.get("type")
         if not isinstance(kind, str):
             raise ValueError("Source type must be a string")
         kind = {"zwave_js_value_notification": "zwave_js", "zha_event": "zha", "zigbee2mqtt": "mqtt"}.get(kind, kind)
-        if kind not in {"native_event", "shared_native", "zwave_js", "zha", "mqtt", "bus"}:
+        if kind not in {"native_event", "shared_native", "zwave_js", "zha", "mqtt", "bus", "ha_device_trigger"}:
             raise ValueError("Unsupported source type")
         identity = text(data.get("id"), "source ID", KEY)
         source_entity = None
@@ -283,8 +334,14 @@ class SourceConfig:
             source_entity = entity_id(data.get("source_entity_id"), {"event"})
         elif "source_entity_id" in data or "source_registry_id" in data:
             raise ValueError("source_entity_id requires a native event source")
-        if kind not in {"zwave_js", "zha"} and "device_id" in data:
-            raise ValueError("device_id is only supported for Z-Wave and ZHA sources")
+        if kind not in {"zwave_js", "zha", "ha_device_trigger"} and "device_id" in data:
+            raise ValueError("device_id requires an HA device source")
+        triggers = ()
+        if kind == "ha_device_trigger":
+            device_id = text(data.get("device_id"), "HA device ID", IDENTITY)
+            triggers = _device_triggers(data.get("triggers"), device_id)
+        elif "triggers" in data:
+            raise ValueError("triggers requires an HA device trigger source")
         registry_id = text(data["source_registry_id"], "source registry ID", IDENTITY) if "source_registry_id" in data else None
         raw_buttons = data.get("buttons")
         if raw_buttons is None and "actions" in data:
@@ -340,16 +397,15 @@ class SourceConfig:
         for button in buttons:
             if not button.actions:
                 raise ValueError("Every button needs at least one mapping")
-            seen = {}
-            for gesture in button.actions.values():
-                if gesture.id in seen and seen[gesture.id] != gesture:
-                    raise ValueError("Conflicting gesture declarations")
-                seen[gesture.id] = gesture
-            if len([g for g in seen.values() if g.kind == "hold_repeat"]) > 1:
-                raise ValueError("Only one hold repeat declaration is supported per button")
-            if any(g.kind == "hold_start" for g in seen.values()) and "hold_repeat" in seen and seen["hold_repeat"].kind != "hold_repeat":
-                raise ValueError("hold_repeat identity is reserved")
+            _validate_button_gestures(button.actions)
         filters = _filters(data.get("filters", {}), "Source filters")
+        if kind == "ha_device_trigger":
+            trigger_ids = {trigger.id for trigger in triggers}
+            if filters or any(set(mapping.match) != {"trigger_id"} or mapping.match["trigger_id"] not in trigger_ids
+                              for mapping in mappings):
+                raise ValueError("Device trigger mappings must reference reported trigger IDs")
+            if {mapping.match["trigger_id"] for mapping in mappings} != trigger_ids:
+                raise ValueError("Each reported trigger needs one gesture mapping")
         if kind in {"zha", "zwave_js"}:
             device = text(data.get("device_id"), "HA device ID")
             if "device_id" in filters and filters["device_id"] != device:
@@ -369,6 +425,7 @@ class SourceConfig:
         elif event_type is not None:
             raise ValueError("event_type is only configurable for bus sources")
         topic = availability = None
+        raw_payload, device_trigger_refs = False, ()
         if kind == "mqtt":
             topic = text(data.get("topic"), "MQTT action topic")
             availability = data.get("availability_topic")
@@ -376,7 +433,21 @@ class SourceConfig:
                 availability = text(availability, "MQTT availability topic")
             if any(char in (topic + (availability or "")) for char in ("+", "#", "\x00")) or topic == availability:
                 raise ValueError("MQTT topics must be distinct literal topics")
-        elif any(key in data for key in ("topic", "availability_topic", "payload_available", "payload_not_available")):
+            raw_payload = data.get("raw_payload", False)
+            if type(raw_payload) is not bool:
+                raise ValueError("raw_payload must be a boolean")
+            if "device_trigger_refs" in data:
+                refs = data["device_trigger_refs"]
+                if not raw_payload or not isinstance(refs, list) or not 1 <= len(refs) <= 256:
+                    raise ValueError("MQTT device trigger references require literal payloads")
+                for ref in refs:
+                    if not isinstance(ref, dict) or set(ref) != {"device_id", "type", "subtype", "payload"}:
+                        raise ValueError("Invalid MQTT device trigger reference")
+                    text(ref["device_id"], "MQTT HA device ID", IDENTITY)
+                    for field in ("type", "subtype", "payload"):
+                        text(ref[field], "MQTT trigger " + field)
+                device_trigger_refs = tuple(deepcopy(refs))
+        elif any(key in data for key in ("topic", "availability_topic", "payload_available", "payload_not_available", "raw_payload", "device_trigger_refs")):
             raise ValueError("MQTT fields require an MQTT source")
         timeout = data.get("inactivity_timeout")
         if timeout is not None and (type(timeout) not in (int, float) or not 0.1 <= timeout <= 3600):
@@ -386,7 +457,7 @@ class SourceConfig:
         if available == unavailable:
             raise ValueError("Availability payloads must differ")
         return cls(identity, kind, buttons, tuple(mappings), filters, source_entity, event_type, topic, availability,
-                   available, unavailable, timeout, registry_id)
+                   available, unavailable, timeout, registry_id, triggers, raw_payload, device_trigger_refs)
 
 
 def filters_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
@@ -401,6 +472,8 @@ def filters_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
 
 
 def source_channel(source: SourceConfig) -> tuple[str, str]:
+    if source.type == "ha_device_trigger":
+        return "ha_device_trigger", source.device_triggers[0].config["device_id"]
     if source.source_entity_id:
         return "native", source.source_entity_id
     if source.type == "mqtt":

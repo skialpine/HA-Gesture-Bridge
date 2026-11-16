@@ -298,39 +298,38 @@ async def test_lost_event_tracking_invalidates_only_that_source_hold(hass, lost_
 
 
 @pytest.mark.parametrize("runtime", ["luajit", "lua"])
-async def test_real_ha_sources_drive_actual_switch_button_links(hass, tmp_path, runtime, run_consumer):
+async def test_real_ha_sources_keep_switch_passive(hass, tmp_path, runtime, run_consumer):
     executable = shutil.which(runtime)
     if executable is None:
-        pytest.skip(f"Install {runtime} to check actual Switch outputs")
+        pytest.skip(f"Install {runtime} to check actual Switch gesture programming")
     _, entity, top, bottom = await setup(hass)
     suite = {"entity_id": entity.entity_id, "cases": []}
 
-    def capture(expected=None, links=(), delivery="event"):
+    def capture(expected=None, delivery="event"):
         suite["cases"].append({"name": f"real_controller_{len(suite['cases'])}", "delivery": delivery,
-            "state": wire(hass, entity), "expected_event": expected,
-            "expected_links": [{"binding": binding, "command": command} for binding, command in links]})
+            "state": wire(hass, entity), "expected_event": expected})
 
     capture(delivery="state")
     await top.press("KeyPressed")
-    capture("top/press_1", ((200, "DO_PUSH"), (200, "DO_CLICK")))
+    capture("top/press_1")
     await top.press("KeyPressed2x")
     capture("top/press_2")
     await top.press("KeyHeldDown")
-    capture("top/hold_start", ((200, "DO_PUSH"),))
+    capture("top/hold_start")
     await top.press("KeyHeldDown")
     capture("top/hold_repeat")
     hass.states.async_set(TOP, "unknown")
     await hass.async_block_till_done()
-    capture(links=((200, "DO_RELEASE"),))
+    capture()
     await bottom.press("KeyPressed")
-    capture("bottom/press_1", ((201, "DO_PUSH"), (201, "DO_CLICK")))
+    capture("bottom/press_1")
     await bottom.press("KeyReleased")
     capture("bottom/release")  # Genuine source release, no active C4 hold.
     await top.press("KeyHeldDown")
-    capture("top/hold_start", ((200, "DO_PUSH"),))
-    capture()  # Duplicate transport must neither replay nor release the hold.
+    capture("top/hold_start")
+    capture()  # Duplicate transport cannot replay gesture programming.
     await top.press("KeyReleased")
-    capture("top/release", ((200, "DO_RELEASE"),))
+    capture("top/release")
     path = tmp_path / "real-native-controller.json"
     path.write_text(json.dumps(suite))
-    await run_consumer(executable, "tests/controller/test_switch_driver.lua", path, "controller")
+    await run_consumer(executable, "tests/controller/test_switch_driver.lua", path)

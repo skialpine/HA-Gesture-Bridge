@@ -1,6 +1,14 @@
-# Configure input sources
+# Source support and advanced configuration
 
-Use native HA event entities when available. The UI's native profile intersects recognized mappings with each entity's advertised `event_types`. The separate upper/lower selectors preserve stable `top`/`bottom` identities. Manual JSON allows custom event names, additional buttons or another input interface. JSON in the advanced UI is a control object (or the source list where explicitly requested); the UI validates it before saving.
+The normal setup is **Choose device → Review detected buttons and gestures → Save**. It selects the input interface automatically; users do not choose a radio protocol or write source JSON. Review also suggests an editable name based on the device and lets you assign Top, Bottom and Toggle roles.
+
+Discovery prefers the device’s enabled HA event entities. It uses their actual `event_types`; unknown reported actions remain custom gestures. If there are no suitable event entities, it uses supported physical HA device triggers. Relay state changes, configuration parameters and diagnostic Ping buttons are excluded.
+
+Hue button event entities use the reported short-release action for a single tap, with long-press, repeat and long-release actions providing hold, hold-repeat and release. The initial down edge remains a separate custom action, so beginning a hold does not also click. Hue Tap Switch's initial-press-only event profile provides a single tap. Hue rotary events remain custom rotation actions; they do not become button holds. Existing saved mappings are not rewritten automatically; reconfigure a Hue control to use the detected profile. These mappings are covered against HA's native event vocabulary; physical Hue hardware qualification is still separate.
+
+MQTT discovery uses HA’s existing broker connection and preserves retained-message filtering. Automatic setup currently requires literal action topics and payloads; MQTT value templates and a single button whose actions span several topics require advanced configuration. Changing a discovered MQTT topic or payload requires reconfiguring the control. Re-enable a disabled generic device-trigger device, then reload or reconfigure Gesture Bridge to reattach its inputs.
+
+If a device exposes no discoverable inputs, enable button/scene reporting in its own integration or use the advanced source declarations below. These are a YAML/configuration reference, not options in the standard setup screen.
 
 Complete configuration examples are in [source-profiles.yaml](../examples/source-profiles.yaml). They are examples of supported interfaces, not claims that any particular device model supports every listed gesture. Replace the source identities and action names with your actual device's reports.
 
@@ -22,7 +30,7 @@ Use `type: native_event` with one source entity and an `actions` convenience map
 
 Use `type: zwave_js`, select the HA device and optionally filter endpoint, home ID and node ID. The adapter accepts Central Scene command class 91, property `scene`, and normalizes its numeric `property_key` as the `scene` match field. Scene numbers remain separate from the configured stable button IDs. It is manufacturer-independent.
 
-An explicit mappings list declares the actual supported subset. The convenience profile is enabled by omitting mappings and assigning an integer `scene` to each button; it declares one through five taps, held and release. Choose it only when those reports are supported by the device. Native UI profiles are preferable when HA already advertises the actual event types. Enable scene reporting in the device using its manufacturer/firmware-specific settings.
+An explicit mappings list declares the actual supported subset. The convenience profile is enabled by omitting mappings and assigning an integer `scene` to each button; it declares one through five taps, held and release. Choose it only when those reports are supported by the device. Automatic event-entity discovery is preferable when HA already advertises the actual event types. Enable scene reporting in the device using its manufacturer/firmware-specific settings.
 
 ## ZHA
 

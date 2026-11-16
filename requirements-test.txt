@@ -3,6 +3,9 @@ pytest==9.2.0
 pytest-asyncio==1.4.0
 jsonschema==4.26.0
 
+# Real Z-Wave JS model/API boundary tests; HA's native integration owns runtime installation.
+zwave-js-server-python==0.74.0
+
 # HA MQTT integration dependency, required by MQTT boundary tests on clean runners.
 paho-mqtt==2.1.0
 

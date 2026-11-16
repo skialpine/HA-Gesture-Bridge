@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .config import DOMAIN, NativeControlConfig
 
-_SOURCE_TYPES = frozenset({"native_event", "shared_native", "zwave_js", "zha", "mqtt", "bus"})
+_SOURCE_TYPES = frozenset({"native_event", "shared_native", "zwave_js", "zha", "mqtt", "bus", "ha_device_trigger"})
 
 
 def _count(value: Any) -> int:

@@ -4,7 +4,6 @@ MQTT tests replace only HA's broker subscription boundary: the core, entity,
 state machine, dispatcher and MQTT ReceiveMessage model are real.
 """
 
-import asyncio
 from dataclasses import replace
 import json
 import logging
@@ -203,11 +202,17 @@ async def test_native_source_forms_recovery_cycle_and_unknown_tracking_loss(hass
     assert wire(hass, entity)["gesture_sequence"] == 3
 
 
-async def test_inactivity_clears_hold_bookkeeping_without_release(hass):
+async def test_inactivity_clears_hold_bookkeeping_without_release(hass, monkeypatch):
+    scheduled = []
+    def schedule(_hass, delay, callback):
+        scheduled.append((delay, callback))
+        return lambda: None
+    monkeypatch.setattr("custom_components.ha_gesture_bridge.sources.async_call_later", schedule)
     entity = await add(hass, [bus(inactivity_timeout=0.1, mappings=[mapping("top", {"action": "held"}, kind="hold_start")])])
     await fire(hass, "vendor_button", {"serial": "explicit-device", "action": "held"})
     assert wire(hass, entity)["event_type"] == "hold_start"
-    await asyncio.sleep(0.15)
+    assert len(scheduled) == 1 and scheduled[0][0] == 0.1
+    scheduled[0][1](None)
     await hass.async_block_till_done()
     assert not entity._held_buttons
     assert wire(hass, entity)["gesture_sequence"] == 1

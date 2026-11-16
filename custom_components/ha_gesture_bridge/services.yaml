@@ -61,3 +61,46 @@ acknowledge:
           min: 0
           max: 60000
           mode: box
+set_led:
+  name: Set status LED
+  description: >-
+    Set a discovered or explicitly configured status LED color or brightness.
+    Color and brightness changes preserve LED behavior unless behavior is explicitly supplied.
+    Updates are confirmed from device feedback, never optimistic.
+    Does not control a light load or publish a gesture.
+  fields:
+    entity_id:
+      name: Gesture control
+      required: true
+      selector:
+        entity:
+          integration: ha_gesture_bridge
+          domain: event
+    led_id:
+      name: Stable LED channel ID
+      required: true
+      selector:
+        text:
+    color:
+      name: Color (six hexadecimal digits)
+      description: Changes color without changing LED behavior. Black requires explicit always_off behavior; fixed-color LEDs use behavior instead.
+      selector:
+        text:
+    brightness:
+      name: LED brightness percentage
+      description: Uses supported device brightness levels while preserving power. Standard intensity-only indicators require explicit behavior to change power.
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+    behavior:
+      name: LED behavior
+      description: Changes indicator behavior independently of color. Availability depends on the device.
+      selector:
+        select:
+          options:
+            - follow_load
+            - follow_load_inverted
+            - always_on
+            - always_off

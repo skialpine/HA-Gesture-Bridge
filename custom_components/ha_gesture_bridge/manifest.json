@@ -2,16 +2,17 @@
   "domain": "ha_gesture_bridge",
   "name": "HA Gesture Bridge",
   "after_dependencies": [
-    "mqtt"
+    "mqtt",
+    "zwave_js"
   ],
   "codeowners": [
     "@skialpine"
   ],
   "config_flow": true,
   "documentation": "https://github.com/skialpine/HA-Gesture-Bridge",
-  "integration_type": "helper",
+  "integration_type": "service",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/skialpine/HA-Gesture-Bridge/issues",
   "requirements": [],
-  "version": "0.1.1"
+  "version": "0.1.2"
 }

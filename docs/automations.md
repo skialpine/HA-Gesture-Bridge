@@ -53,4 +53,4 @@ Configure this only for a source that reports release. Hold repeats do not resta
 
 ## Control4 programming
 
-Select the aggregate on the HA Switch/Dimmer consumer. Its reported double/triple gestures can trigger Composer scene programming. In C4 Button Controller mode, singles/holds/releases instead forward through existing Button Link connections to the selected C4 light. Keep the target light's driver responsible for its actual load. Native discovery and manual/direct control do not require this HA companion.
+Select the aggregate on the HA Switch/Dimmer consumer. Its reported double/triple gestures can trigger Composer scene programming. In Control Connected C4 Light mode, singles/holds/releases instead forward through existing Button Link connections to the selected C4 light. Keep the target light's driver responsible for its actual load. Native discovery and manual/direct control do not require this HA companion.

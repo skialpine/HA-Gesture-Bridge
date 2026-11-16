@@ -15,20 +15,12 @@ from homeassistant.helpers import selector
 
 from . import enrich_native_sources
 from .config import DOMAIN, NativeControlConfig
+from .device_discovery import UnsupportedDeviceConfiguration, discover_device
+from .led_discovery import led_summary
 
 SUBENTRY_CONTROL = "control"
-SOURCE_TYPES = ["native_event", "shared_native", "zwave_js", "zha", "mqtt", "bus", "advanced"]
-PROFILE_ACTIONS = {
-    "KeyPressed": {"kind": "press", "press_count": 1},
-    **{f"KeyPressed{count}x": {"kind": "press", "press_count": count} for count in range(2, 6)},
-    "KeyHeldDown": {"kind": "hold_start"}, "KeyReleased": {"kind": "release"},
-    "single": {"kind": "press", "press_count": 1}, "double": {"kind": "press", "press_count": 2},
-    "triple": {"kind": "press", "press_count": 3}, "single_press": {"kind": "press", "press_count": 1},
-    "double_press": {"kind": "press", "press_count": 2}, "triple_press": {"kind": "press", "press_count": 3},
-    "hold": {"kind": "hold_start"}, "release": {"kind": "release"},
-}
+DEVICE_SELECTOR = selector.DeviceSelector(selector.DeviceSelectorConfig())
 LOAD_SELECTOR = selector.EntitySelector(selector.EntitySelectorConfig(domain=["switch", "input_boolean", "light"]))
-EVENT_SELECTOR = selector.EntitySelector(selector.EntitySelectorConfig(domain="event"))
 TEXT = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
 
 
@@ -42,8 +34,20 @@ def yaml_controls(hass) -> dict[str, dict]:
 
 
 def clean_config(data: dict) -> dict:
-    """Remove only HA's platform metadata; keep stable identities and mappings."""
-    return {key: deepcopy(value) for key, value in data.items() if key != "platform"}
+    """Keep control fields while leaving YAML-only platform metadata in YAML.
+
+    Registry ownership preserves the existing namespaced entity ID on import;
+    non-polling controls have no UI use for a timedelta scan interval.
+    """
+    return {key: deepcopy(value) for key, value in data.items()
+            if key not in {"platform", "entity_namespace", "scan_interval"}}
+
+
+def require_source_dependencies(hass, control: NativeControlConfig) -> None:
+    """Use the same dependency validation for creation and every import path."""
+    if (any(source.type == "mqtt" for source in control.source_configs)
+            and "mqtt" not in hass.config.components and not hass.config_entries.async_entries("mqtt")):
+        raise MQTTNotConfigured
 
 
 class GestureBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -59,6 +63,7 @@ class GestureBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
+        errors = {}
         if user_input is not None:
             subentries = []
             if user_input.get("import_yaml"):
@@ -68,196 +73,193 @@ class GestureBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
                         parsed = NativeControlConfig.parse(config)
                     except (ValueError, TypeError):
                         continue
+                    try:
+                        require_source_dependencies(self.hass, parsed)
+                    except MQTTNotConfigured:
+                        errors["base"] = "mqtt_not_configured"
+                        break
                     subentries.append({"data": config, "subentry_type": SUBENTRY_CONTROL,
                                        "title": parsed.name, "unique_id": identity})
-            return self.async_create_entry(title="HA Gesture Bridge", data={
-                "imported_yaml": [item["unique_id"] for item in subentries]}, subentries=subentries)
+            if not errors:
+                return self.async_create_entry(title="HA Gesture Bridge", data={
+                    "imported_yaml": [item["unique_id"] for item in subentries]}, subentries=subentries)
         return self.async_show_form(step_id="user", data_schema=vol.Schema({
-            vol.Optional("import_yaml", default=bool(yaml_controls(self.hass))): bool}))
+            vol.Optional("import_yaml", default=bool(yaml_controls(self.hass))): bool}), errors=errors, last_step=True)
 
 
 class ControlSubentryFlow(ConfigSubentryFlow):
-    """Add and reconfigure a control; HA supplies removal in its subentry UI."""
+    """Choose a device, review its actual inputs, and create one control."""
 
     def __init__(self):
         self._identity = uuid4().hex
-        self._name = ""
-        self._source_type = "native_event"
         self._editing = None
         self._existing: dict[str, Any] = {}
+        self._discovery = None
+        self._device_id = None
+        self._name = ""
+        self._configure_leds = False
+        self._pending: dict[str, Any] = {}
 
     async def async_step_reconfigure(self, user_input=None):
         if self._editing is None:
             self._editing = self._get_reconfigure_subentry()
             self._existing = enrich_native_sources(self.hass, dict(self._editing.data))
             self._identity = self._editing.unique_id or self._existing["unique_id"]
+            self._device_id = self._existing.get("source_device_id")
             self._name = self._existing.get("name", self._editing.title)
-            # Editing through JSON preserves arbitrary/custom button IDs. The
-            # generated control identity is never an editable form field.
-            self._source_type = "advanced"
         return await self.async_step_user(user_input)
 
-    async def async_step_user(self, user_input=None):
-        if user_input is not None:
-            self._name = user_input["name"].strip()
-            self._source_type = user_input["source_type"]
-            if self._source_type == "import_yaml":
-                return await self.async_step_import_yaml()
-            if self._source_type == "native_event":
-                return await self.async_step_native()
-            if self._source_type != "advanced":
-                return await self.async_step_source()
-            return await self.async_step_advanced()
-        types = list(SOURCE_TYPES)
-        if not self._editing and yaml_controls(self.hass):
-            types.append("import_yaml")
-        return self.async_show_form(step_id="user", data_schema=vol.Schema({
-            vol.Required("name", default=self._name or "Gesture Control"): str,
-            vol.Required("source_type", default=self._source_type): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=types, translation_key="source_type"))}))
+    def _already_managed(self):
+        return any(item != self._editing and item.data.get("source_device_id") == self._device_id
+                   for item in self._get_entry().subentries.values())
 
-    def _finish(self, data):
+    async def async_step_user(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            self._device_id = user_input["device_id"]
+            self._configure_leds = user_input.get("configure_leds", False)
+            try:
+                if self._already_managed():
+                    return self._device_form({"device_id": "device_already_configured"})
+                self._discovery = await discover_device(self.hass, self._device_id)
+                if not self._discovery.buttons:
+                    errors["device_id"] = "no_supported_inputs"
+                else:
+                    if not self._editing:
+                        self._name = self._discovery.device_name[:119] + " Gestures"
+                    return self._review_form()
+            except UnsupportedDeviceConfiguration as error:
+                return self._device_form({"device_id": "unsupported_device_configuration"}, str(error))
+            except ValueError:
+                errors["device_id"] = "device_unavailable"
+        return self._device_form(errors)
+
+    def _device_form(self, errors, hint=""):
+        device = vol.Required("device_id", default=self._device_id) if self._device_id else vol.Required("device_id")
+        return self.async_show_form(step_id="user", data_schema=vol.Schema({
+            device: DEVICE_SELECTOR,
+            vol.Optional("configure_leds", default=self._configure_leds): bool}), errors=errors,
+            description_placeholders={"hint": hint}, last_step=False)
+
+    def _same_inputs(self, discovery):
+        return discovery.buttons == self._discovery.buttons
+
+    def _roles(self, user_input):
+        roles = {button.button_id: button.button_id for button in self._discovery.buttons}
+        assigned = set()
+        for role in ("top", "bottom", "toggle"):
+            chosen = user_input.get(role + "_button", "__none__")
+            if chosen != "__none__":
+                if chosen not in roles or chosen in assigned:
+                    raise ValueError("Choose each button at most once")
+                roles[chosen] = role
+                assigned.add(chosen)
+        return roles
+
+    def _review_form(self, user_input=None, error=None, hint=""):
+        user_input = user_input or {}
+        existing_roles = self._existing.get("source_button_roles", {})
+        schema = {vol.Required("name", default=user_input.get("name", self._name)): str}
+        options = [{"value": "__none__", "label": "None — keep original button names"}, *[
+            {"value": button.button_id, "label": button.label + " — " + button.gesture_summary}
+            for button in self._discovery.buttons]]
+        for role in ("top", "bottom", "toggle"):
+            default = next((button.button_id for button in self._discovery.buttons
+                if existing_roles.get(button.button_id, button.suggested_role) == role), "__none__")
+            field = role + "_button"
+            schema[vol.Required(field, default=user_input.get(field, default))] = selector.SelectSelector(
+                selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.DROPDOWN))
+        load = user_input.get("load_entity_id", self._existing.get("load_entity_id"))
+        schema[vol.Optional("load_entity_id", default=load) if load else vol.Optional("load_entity_id")] = LOAD_SELECTOR
+        return self.async_show_form(step_id="review_leds" if self._configure_leds else "review",
+            data_schema=vol.Schema(schema), errors={"base": error} if error else {},
+            description_placeholders={"device": self._discovery.device_name,
+                "suggested_name": self._discovery.device_name[:119] + " Gestures", "hint": hint,
+                "led_notice": ("Previous device LED mappings will be removed; supported LEDs on the new device will be discovered automatically."
+                    if self._existing.get("leds") and self._existing.get("source_device_id") != self._device_id else ""),
+                "led_summary": ("Custom LED mappings are active for this device. Use Customize LED mappings to edit them; save [] to return to automatic discovery."
+                    if self._existing.get("leds") and self._existing.get("source_device_id") == self._device_id
+                    else led_summary(self.hass, self._device_id)),
+                "inputs": "\n".join(
+                "- " + button.label + ": " + button.gesture_summary for button in self._discovery.buttons)},
+            last_step=not self._configure_leds)
+
+    async def async_step_review(self, user_input=None):
+        if user_input is not None:
+            try:
+                self._name = user_input["name"].strip()
+                # Refresh capabilities before save; a device removed or changed
+                # during review must not create stale or guessed event mappings.
+                try:
+                    discovery = await discover_device(self.hass, self._device_id)
+                except UnsupportedDeviceConfiguration as error:
+                    return self._review_form(user_input, "unsupported_device_configuration", str(error))
+                except ValueError:
+                    return self._review_form(user_input, "device_unavailable")
+                if not discovery.buttons:
+                    return self._review_form(user_input, "device_unavailable")
+                if not self._same_inputs(discovery):
+                    self._discovery = discovery
+                    return self._review_form(user_input, "device_changed")
+                self._discovery = discovery
+                data = discovery.build_config(self._roles(user_input), unique_id=self._identity,
+                    name=self._name, load_entity_id=user_input.get("load_entity_id"))
+                if self._existing.get("source_device_id") == self._device_id and self._existing.get("leds"):
+                    data["leds"] = deepcopy(self._existing["leds"])
+                data = enrich_native_sources(self.hass, data)
+                NativeControlConfig.parse(data)
+                self._pending = data
+                if self._configure_leds:
+                    return self._led_form()
+                return self._save(data)
+            except (ValueError, TypeError, KeyError):
+                return self._review_form(user_input, "invalid_control")
+        return self._review_form()
+
+    async def async_step_review_leds(self, user_input=None):
+        return await self.async_step_review(user_input)
+
+    def _save(self, data):
         data = enrich_native_sources(self.hass, clean_config(data))
-        data["unique_id"] = self._identity
-        data["name"] = self._name
         parsed = NativeControlConfig.parse(data)
-        if any(source.type == "mqtt" for source in parsed.source_configs):
-            if "mqtt" not in self.hass.config.components and not self.hass.config_entries.async_entries("mqtt"):
-                raise MQTTNotConfigured
+        require_source_dependencies(self.hass, parsed)
         entry = self._get_entry()
+        if self._already_managed():
+            return self.async_abort(reason="device_already_configured")
         if any(item.unique_id == self._identity and item != self._editing for item in entry.subentries.values()):
             return self.async_abort(reason="already_configured")
         if self._editing:
             return self.async_update_and_abort(entry, self._editing, data=data, title=self._name)
         return self.async_create_entry(title=self._name, data=data, unique_id=self._identity)
 
-    def _native_actions(self, entity: str) -> dict:
-        state = self.hass.states.get(entity)
-        event_types = state.attributes.get("event_types", []) if state else []
-        if not isinstance(event_types, (list, tuple)):
-            return {}
-        # No manufacturer inference or universal five-click declaration: only
-        # capabilities advertised by this actual source are enabled.
-        return {action: deepcopy(PROFILE_ACTIONS[action]) for action in event_types
-                if isinstance(action, str) and action in PROFILE_ACTIONS}
+    def _led_form(self, configuration=None, error=None, error_code="invalid_led_mapping"):
+        fields = {vol.Required("configuration", default=(configuration if configuration is not None
+            else json.dumps(self._pending.get("leds", []), indent=2))): TEXT}
+        return self.async_show_form(step_id="leds", data_schema=vol.Schema(fields),
+            errors={"base": error_code} if error else {}, last_step=True,
+            description_placeholders={"error": str(error) if error else ""})
 
-    async def async_step_native(self, user_input=None):
-        errors = {}
-        if user_input is not None:
-            buttons = []
-            try:
-                for button, field in (("top", "top_entity_id"), ("bottom", "bottom_entity_id")):
-                    if entity := user_input.get(field):
-                        actions = self._native_actions(entity)
-                        if not actions:
-                            errors[field] = "no_supported_events"
-                            continue
-                        buttons.append({"id": button, "label": button.title(), "source_entity_id": entity, "actions": actions})
-                if not errors:
-                    data = {"buttons": buttons}
-                    if user_input.get("load_entity_id"):
-                        data["load_entity_id"] = user_input["load_entity_id"]
-                    return self._finish(data)
-            except (ValueError, TypeError, KeyError):
-                errors["base"] = "invalid_mapping"
-        return self.async_show_form(step_id="native", data_schema=vol.Schema({
-            vol.Required("top_entity_id"): EVENT_SELECTOR,
-            vol.Optional("bottom_entity_id"): EVENT_SELECTOR,
-            vol.Optional("load_entity_id"): LOAD_SELECTOR,
-        }), errors=errors)
-
-    async def async_step_advanced(self, user_input=None):
-        errors = {}
+    async def async_step_leds(self, user_input=None):
         if user_input is not None:
             try:
-                data = json.loads(user_input["configuration"])
-                if not isinstance(data, dict):
-                    raise ValueError("Configuration must be an object")
-                return self._finish(data)
-            except MQTTNotConfigured:
-                errors["base"] = "mqtt_not_configured"
-            except (ValueError, TypeError, KeyError, AttributeError):
-                errors["base"] = "invalid_mapping"
-        default = self._existing or {"sources": [{"id": "source_1", "type": self._source_type,
-            "buttons": [{"id": "top", "label": "Top"}], "mappings": []}]}
-        return self.async_show_form(step_id="advanced", data_schema=vol.Schema({
-            vol.Required("configuration", default=json.dumps(default, indent=2)): TEXT,
-        }), errors=errors)
-
-    async def async_step_source(self, user_input=None):
-        """Guide source identity selection while keeping mappings explicit."""
-        errors = {}
-        if user_input is not None:
-            try:
-                source = {"id": "source_1", "type": self._source_type,
-                          "buttons": json.loads(user_input["buttons"]),
-                          "mappings": json.loads(user_input["mappings"])}
-                for field in ("source_entity_id", "device_id", "topic", "availability_topic", "event_type"):
-                    if user_input.get(field):
-                        source[field] = user_input[field]
-                if "filters" in user_input:
-                    source["filters"] = json.loads(user_input["filters"])
-                data = {"sources": [source]}
-                if user_input.get("load_entity_id"):
-                    data["load_entity_id"] = user_input["load_entity_id"]
-                return self._finish(data)
-            except MQTTNotConfigured:
-                errors["base"] = "mqtt_not_configured"
-            except (ValueError, TypeError, KeyError, AttributeError):
-                errors["base"] = "invalid_mapping"
-        fields = {}
-        if self._source_type in ("zwave_js", "zha"):
-            fields[vol.Required("device_id")] = selector.DeviceSelector(
-                selector.DeviceSelectorConfig(integration=self._source_type))
-        elif self._source_type == "shared_native":
-            fields[vol.Required("source_entity_id")] = EVENT_SELECTOR
-        elif self._source_type == "mqtt":
-            fields[vol.Required("topic")] = str
-            fields[vol.Optional("availability_topic")] = str
-        elif self._source_type == "bus":
-            fields[vol.Required("event_type")] = str
-            fields[vol.Required("filters", default='{"device_id": "your-device-id"}')] = TEXT
-        match = {"event_type": "single"} if self._source_type == "shared_native" else {"action": "single"}
-        if self._source_type == "zwave_js":
-            match = {"scene": 1, "value": "KeyPressed"}
-        elif self._source_type == "zha":
-            match = {"command": "single"}
-        mapping = [{"button_id": "top", "match": match, "gesture": {"kind": "press", "press_count": 1}}]
-        fields[vol.Required("buttons", default='[{"id": "top", "label": "Top"}]')] = TEXT
-        fields[vol.Required("mappings", default=json.dumps(mapping, indent=2))] = TEXT
-        fields[vol.Optional("load_entity_id")] = LOAD_SELECTOR
-        return self.async_show_form(step_id="source", data_schema=vol.Schema(fields), errors=errors)
-
-    async def async_step_import_yaml(self, user_input=None):
-        entry = self._get_entry()
-        existing = {item.unique_id for item in entry.subentries.values()}
-        candidates = {identity: record for identity, record in yaml_controls(self.hass).items() if identity not in existing}
-        if not candidates:
-            return self.async_abort(reason="no_yaml_controls")
-        errors = {}
-        selected = user_input.get("control") if user_input else None
-        if user_input is not None:
-            if selected not in candidates:
-                errors["base"] = "invalid_mapping"
-            else:
+                leds = json.loads(user_input["configuration"])
+                data = self._pending | {"leds": leds}
+                NativeControlConfig.parse(data)
                 try:
-                    data = clean_config(candidates[selected]["config"])
-                    self._identity = selected
-                    self._name = data["name"]
-                    result = self._finish(data)
-                except MQTTNotConfigured:
-                    errors["base"] = "mqtt_not_configured"
-                except (ValueError, TypeError, KeyError, AttributeError):
-                    errors["base"] = "invalid_mapping"
-                else:
-                    if result["type"] == "create_entry":
-                        imported = list(entry.data.get("imported_yaml", []))
-                        if selected not in imported:
-                            imported.append(selected)
-                            self.hass.config_entries.async_update_entry(entry, data=dict(entry.data) | {"imported_yaml": imported})
-                    return result
-        field = vol.Required("control", default=selected) if selected in candidates else vol.Required("control")
-        return self.async_show_form(step_id="import_yaml", data_schema=vol.Schema({
-            field: selector.SelectSelector(selector.SelectSelectorConfig(options=[
-                {"value": identity, "label": record["config"]["name"]} for identity, record in candidates.items()]))}),
-            errors=errors)
+                    discovery = await discover_device(self.hass, self._device_id)
+                except UnsupportedDeviceConfiguration as error:
+                    return self._led_form(user_input["configuration"], error,
+                                          error_code="unsupported_device_configuration")
+                except ValueError:
+                    return self._led_form(user_input["configuration"], "Choose an available device before saving.",
+                                          error_code="device_unavailable")
+                if not discovery.buttons or not self._same_inputs(discovery):
+                    return self._led_form(user_input["configuration"], "Go back and review the device inputs again.",
+                                          error_code="device_changed")
+                return self._save(data)
+            except MQTTNotConfigured:
+                return self._led_form(user_input["configuration"], "Configure MQTT before saving this control.",
+                                      error_code="mqtt_not_configured")
+            except (ValueError, TypeError, KeyError, AttributeError) as error:
+                return self._led_form(user_input["configuration"], error)
+        return self._led_form()

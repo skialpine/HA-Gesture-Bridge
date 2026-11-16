@@ -12,6 +12,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .config import DOMAIN, NativeControlConfig
 from .latency import async_setup_latency
+from .leds import async_setup_leds
 
 PLATFORMS = [Platform.EVENT, Platform.SENSOR]
 
@@ -36,6 +37,18 @@ def enrich_native_sources(hass: HomeAssistant, data: dict) -> dict:
                 record["source_entity_id"] = source.entity_id
         elif isinstance(record["source_entity_id"], str) and (source := registry.async_get(record["source_entity_id"])):
             record["source_registry_id"] = source.id
+    for led in result.get("leds", []) if isinstance(result.get("leds", []), list) else []:
+        if not isinstance(led, dict):
+            continue
+        for kind in ("color", "power", "brightness"):
+            endpoint = led.get(kind)
+            if not isinstance(endpoint, dict):
+                continue
+            if identity := endpoint.get("registry_id"):
+                if isinstance(identity, str) and (target := registry.async_get(identity)):
+                    endpoint["entity_id"] = target.entity_id
+            elif isinstance(endpoint.get("entity_id"), str) and (target := registry.async_get(endpoint["entity_id"])):
+                endpoint["registry_id"] = target.id
     return result
 
 
@@ -43,6 +56,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Retain the optional existing YAML event platform."""
     hass.data.setdefault(DOMAIN, {}).setdefault("yaml_controls", {})
     async_setup_latency(hass)
+    async_setup_leds(hass)
     return True
 
 
