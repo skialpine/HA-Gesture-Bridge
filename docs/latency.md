@@ -5,8 +5,10 @@ Normal event publication and load behavior do not wait for acknowledgments, retr
 missing ones, or depend on them. Older receivers ignore the additive capability
 flag; receivers must leave acknowledgment traffic disabled during normal use.
 
-A configured C4 receiver with **Debug Mode = On** and **Latency Diagnostics = On**
-can acknowledge each newly accepted live gesture after processing/forwarding it.
+HA Light build `communication-latency-1` can acknowledge each newly accepted live
+gesture with **Latency Diagnostics = On**, independently of Debug Mode. Leave
+**Debug Mode = Off** to avoid verbose logging overhead. Acknowledgment happens
+after processing/forwarding the gesture.
 The gesture event advertises the integer `bridge_acknowledgment_version: 2`.
 Receivers must require this exact version before using the generic `receiver_*`
 fields. The earlier boolean capability is no longer advertised, so its receivers
