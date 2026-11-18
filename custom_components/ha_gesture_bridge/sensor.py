@@ -237,7 +237,7 @@ def _catalog_row(hass: HomeAssistant, entry: er.RegistryEntry, state: State | No
     return row
 
 
-def _preferred_rows(rows: list[dict[str, Any]], registry: er.EntityRegistry) -> list[dict[str, Any]]:
+def _preferred_rows(hass: HomeAssistant, rows: list[dict[str, Any]], registry: er.EntityRegistry) -> list[dict[str, Any]]:
     """Choose representations using registry relations, never names or areas.
 
     Aliases identify replaced picker entries only. The bridge's controlled load
@@ -253,21 +253,18 @@ def _preferred_rows(rows: list[dict[str, Any]], registry: er.EntityRegistry) -> 
             entity_id = parents[entity_id]
         return entity_id
 
-    by_registry_id = {entry.id: entry.entity_id for entry in registry.entities.values()}
+    from .device_catalog import switch_as_light
+
     for entity_id, row in loads.items():
         entry = registry.async_get(entity_id)
-        if row["domain"] != "light" or row.get("is_group") or entry.platform != "switch_as_x":
+        if row.get("is_group"):
             continue
-        options = entry.options.get("switch_as_x", entry.options.get("light", {}))
-        if not isinstance(options, dict) or options.get("invert") is not False:
+        target, invert = switch_as_light(hass, registry, entry)
+        if target is None or invert is not False or target.platform == "switch_as_x":
             continue
-        source_id = options.get("entity_id")
-        if not isinstance(source_id, str):
-            continue
-        source_id = by_registry_id.get(source_id, source_id)
+        source_id = target.entity_id
         source = loads.get(source_id)
-        if (source is None or source["domain"] != "switch" or source.get("is_group")
-                or registry.async_get(source_id).platform == "switch_as_x"):
+        if source is None or source["domain"] != "switch" or source.get("is_group"):
             continue
         left, right = sorted((root(entity_id), root(source_id)))
         parents[right] = left
@@ -336,7 +333,7 @@ def build_catalog(hass: HomeAssistant) -> list[dict[str, Any]]:
     for entry in er.async_get(hass).entities.values():
         if (row := _catalog_row(hass, entry, hass.states.get(entry.entity_id))) is not None:
             rows.append(row)
-    return _preferred_rows(rows, er.async_get(hass))
+    return _preferred_rows(hass, rows, er.async_get(hass))
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:

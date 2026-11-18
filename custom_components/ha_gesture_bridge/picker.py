@@ -9,7 +9,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.service import async_register_admin_service
 
 from .config import DOMAIN
-from .device_catalog import device_choices, has_identifier
+from .device_catalog import device_choices, eligible_entry
 from .sensor import _catalog_row, paged_attributes
 
 
@@ -26,12 +26,10 @@ def picker_rows(hass):
     # groups as useful direct targets; never reimport groups exported by C4.
     devices = dr.async_get(hass)
     for entry in er.async_get(hass).entities.values():
-        if (entry.domain not in {"light", "switch"} or entry.disabled_by or entry.hidden_by
-                or entry.entity_category is not None or entry.platform == "control4"):
+        if entry.domain not in {"light", "switch"} or entry.platform == "switch_as_x":
             continue
         device = devices.async_get(entry.device_id) if entry.device_id else None
-        owner = hass.config_entries.async_get_entry(entry.config_entry_id) if entry.config_entry_id else None
-        if has_identifier(device, "control4") or (owner and owner.domain == "control4"):
+        if not eligible_entry(hass, entry, device):
             continue
         row = _catalog_row(hass, entry, hass.states.get(entry.entity_id))
         if row is None or not row.get("is_group"):
@@ -62,7 +60,7 @@ def async_setup_picker(hass):
         total_pages = pages["picker_pages"]
         if page > max(total_pages, 1):
             raise ServiceValidationError("invalid_page")
-        result = {"version": 1, "revision": revision, "total": len(rows),
+        result = {"version": 1, "eligibility_version": 1, "revision": revision, "total": len(rows),
                   "pages": total_pages, "page": page, "unchanged": unchanged}
         if not unchanged:
             result["entities"] = pages.get(f"picker_page_{page:03d}", [])

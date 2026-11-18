@@ -16,7 +16,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.service import async_register_admin_service
 
 from .config import DOMAIN, NativeControlConfig
-from .device_catalog import has_identifier, load_record, selected_endpoint
+from .device_catalog import eligible_device, has_identifier, load_record, selected_endpoint
 from .device_discovery import (
     DeviceDiscovery, DiscoveredButton, SourceMetadataUnavailable, _trigger_input,
     discover_device, valid_native_event_types,
@@ -140,7 +140,7 @@ class Preparation:
 
     async def prepare(self, device_id, source_registry_id=None):
         device = dr.async_get(self.hass).async_get(device_id)
-        if device is None or device.disabled_by or has_identifier(device, "control4"):
+        if not eligible_device(self.hass, device):
             raise ServiceValidationError("device_unavailable")
         try:
             source = selected_endpoint(self.hass, device_id, source_registry_id) if source_registry_id else None

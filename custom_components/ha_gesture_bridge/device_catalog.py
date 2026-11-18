@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import re
 
 from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
@@ -14,27 +15,72 @@ def has_identifier(device, domain):
     return bool(device and any(value and value[0] == domain for value in device.identifiers))
 
 
+def _control4_owner(hass, entry_id):
+    entry = hass.config_entries.async_get_entry(entry_id) if entry_id else None
+    return entry is not None and entry.domain == "control4"
+
+
+def eligible_device(hass, device):
+    return bool(device and device.disabled_by is None and not has_identifier(device, "control4")
+                and not _control4_owner(hass, device.config_entry_id))
+
+
+def eligible_entry(hass, entry, device, *, allow_hidden=False):
+    return (entry.disabled_by is None and (allow_hidden or entry.hidden_by is None)
+            and entry.entity_category is None and entry.platform != "control4"
+            and not _control4_owner(hass, entry.config_entry_id)
+            and (device is None or eligible_device(hass, device)))
+
+
+def switch_as_light(hass, registry, entry):
+    """Resolve a wrapper's actual target and inversion from its HA configuration."""
+    if entry.domain != "light" or entry.platform != "switch_as_x":
+        return None, None
+    owner = hass.config_entries.async_get_entry(entry.config_entry_id) if entry.config_entry_id else None
+    options = (owner.options if owner and owner.domain == "switch_as_x"
+               else entry.options.get("switch_as_x", entry.options.get("light")))
+    if not isinstance(options, Mapping) or not isinstance(reference := options.get("entity_id"), str):
+        return None, None
+    return registry.async_get(reference), options.get("invert")
+
+
 def load_record(hass, entry):
     state = hass.states.get(entry.entity_id)
     return {"registry_id": entry.id, "entity_id": entry.entity_id, "domain": entry.domain,
             "available": bool(state and state.state in ("on", "off"))}
 
 
-def device_choices(hass):
+def _device_choices(hass):
     # Imports here keep the existing catalog helpers as the single owner of
     # wrapper equivalence, without coupling their entity projection to choices.
     from .sensor import _catalog_row, _preferred_rows
 
     registry, devices = er.async_get(hass), dr.async_get(hass)
-    loads, inputs = [], set()
+    loads, inputs, wrapped_devices, hidden_targets = [], set(), {}, {}
     for entity in registry.entities.values():
+        if entity.domain not in {"event", "light", "switch"}:
+            continue
         device = devices.async_get(entity.device_id) if entity.device_id else None
-        if ((device and device.disabled_by) or entity.disabled_by or entity.platform == "control4"
-                or entity.entity_category is not None):
+        if not eligible_entry(hass, entity, device):
             continue
         if entity.domain == "event" and entity.platform != DOMAIN and device:
             inputs.add(device.id)
-        elif entity.domain in {"light", "switch"} and (device or entity.platform == "switch_as_x"):
+        elif entity.domain in {"light", "switch"}:
+            target, invert = switch_as_light(hass, registry, entity)
+            if target is not None:
+                target_device = devices.async_get(target.device_id) if target.device_id else None
+                if not eligible_entry(hass, target, target_device, allow_hidden=True):
+                    continue
+                # HA usually hides the wrapped switch. The visible wrapper can
+                # still inherit the device without exposing the hidden alias.
+                if target_device and target.domain == "switch":
+                    wrapped_devices[entity.entity_id] = target_device.id
+                    if target.hidden_by is not None and invert is False and target.entity_id not in hidden_targets:
+                        base = _catalog_row(hass, target, hass.states.get(target.entity_id))
+                        if base and not base.get("is_group"):
+                            hidden_targets[target.entity_id] = base
+            if not device and entity.entity_id not in wrapped_devices:
+                continue
             row = _catalog_row(hass, entity, hass.states.get(entity.entity_id))
             if row and not row.get("is_group"):
                 loads.append(row)
@@ -43,16 +89,19 @@ def device_choices(hass):
         for sub in entry.get_subentries_of_type("control"):
             controls.setdefault(sub.data.get("source_device_id"), []).append(sub)
     by_device = {}
-    for row in _preferred_rows(loads, registry):
-        entry = registry.async_get(row["entity_id"])
-        if entry:
-            owners = {item.device_id for name in [row["entity_id"], *row.get("entity_aliases", [])]
-                      if (item := registry.async_get(name)) is not None and item.device_id}
-            if len(owners) == 1:
-                by_device.setdefault(next(iter(owners)), []).append((entry, row))
-    result = []
+    for row in _preferred_rows(hass, [*loads, *hidden_targets.values()], registry):
+        entity_id = row["entity_id"]
+        if entity_id in hidden_targets:
+            continue
+        entry = registry.async_get(entity_id)
+        aliases = {entity_id, *row.get("entity_aliases", [])}
+        owners = {item.device_id for name in aliases
+                  if (item := registry.async_get(name)) is not None and item.device_id}
+        owners.update(wrapped_devices[name] for name in aliases if name in wrapped_devices)
+        if len(owners) == 1:
+            by_device.setdefault(next(iter(owners)), []).append((entry, row, aliases - hidden_targets.keys()))
     for device in devices.devices:
-        if device.disabled_by or has_identifier(device, "control4"):
+        if not eligible_device(hass, device):
             continue
         endpoints = by_device.get(device.id, [])
         # A reviewed candidate namespace is enough to offer inspection, never
@@ -62,7 +111,7 @@ def device_choices(hass):
             continue
         area = ar.async_get(hass).async_get_area(device.area_id) if device.area_id else None
         name = (device.name_by_user or device.name or "HA Device")[:128]
-        for endpoint, row in endpoints or [(None, None)]:
+        for endpoint, row, aliases in endpoints or [(None, None, ())]:
             label = name
             if len(endpoints) > 1:
                 label += " — " + str(row["friendly_name"])[:120]
@@ -74,37 +123,28 @@ def device_choices(hass):
             matches = controls.get(device.id, [])
             if len(matches) == 1:
                 gesture_id = registry.async_get_entity_id("event", DOMAIN, matches[0].unique_id)
-                if gesture_id:
+                gesture = registry.async_get(gesture_id) if gesture_id else None
+                gesture_device = devices.async_get(gesture.device_id) if gesture and gesture.device_id else None
+                if gesture and eligible_entry(hass, gesture, gesture_device):
                     record["gesture_entity_id"] = gesture_id
+                elif endpoint is None and gesture:
+                    continue
             if endpoint:
                 record["source_load"] = load_record(hass, endpoint)
             if area:
                 record["area"] = area.name[:128]
-            result.append(record)
-    return sorted(result, key=lambda item: item["choice_id"])
+            yield record, aliases
+
+
+def device_choices(hass):
+    return sorted((choice for choice, _ in _device_choices(hass)), key=lambda choice: choice["choice_id"])
 
 
 def selected_endpoint(hass, device_id, registry_id):
     """Resolve only a currently eligible endpoint or its proven exact alias."""
-    from .sensor import _catalog_row, _preferred_rows
-
     registry = er.async_get(hass)
-    selected = registry.async_get(registry_id) if registry_id else None
-    if selected is None:
-        raise ValueError("invalid_endpoint")
-    for choice in device_choices(hass):
-        if choice["device_id"] != device_id or "source_load" not in choice:
-            continue
-        endpoint = registry.async_get(choice["source_load"]["registry_id"])
-        if selected.id == endpoint.id:
-            return selected
-        # Reuse exact switch-as-light equivalence, including a wrapper whose
-        # HA entry lacks device_id. Never authorize another device by its name.
-        rows = []
-        for entry in (selected, endpoint):
-            if (row := _catalog_row(hass, entry, hass.states.get(entry.entity_id))) is not None:
-                rows.append(row)
-        for row in _preferred_rows(rows, registry):
-            if selected.entity_id in row.get("entity_aliases", []) and row["entity_id"] == endpoint.entity_id:
-                return endpoint
+    if (selected := registry.async_get(registry_id)) is not None:
+        for choice, aliases in _device_choices(hass):
+            if choice["device_id"] == device_id and selected.entity_id in aliases:
+                return registry.async_get(choice["source_load"]["registry_id"])
     raise ValueError("invalid_endpoint")

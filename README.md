@@ -30,7 +30,10 @@ Ordinary loads without physical gestures use their existing entity directly.
 The read-only `ha_gesture_bridge.get_devices` action supplies a bounded,
 versioned device list to the Coordinator. Subsequent openings can send its
 revision to receive an unchanged confirmation instead of the list. It includes
-native HA light groups and excludes devices exported from Control4.
+native Home Assistant light and switch groups. The helper excludes hidden and
+disabled endpoints and devices exported from Control4. The helper is optional
+for native light and switch setup. See the [picker contract](docs/catalog.md#picker-service)
+for response details.
 
 Automatic preparation requires an **admin HA access token** in the Coordinator.
 A permission error does not mean HA is disconnected. Native direct control

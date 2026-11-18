@@ -78,3 +78,30 @@ Receivers needing only names/areas should first request the names manifest, then
 Validate the same names revision, total and page count on every response, reject duplicate/missing IDs, and publish only after all pages have passed validation. A rename or area edit during transfer invalidates the whole enrichment; a load merely turning on/off does not change the names revision. Empty catalogs use total zero and no pages. Errors or incompatible versions leave native discovery usable.
 
 The Control4 consumer releases each completed discovery snapshot before fetching the next page with the additive `HA_RELEASE_ENTITIES` command. Other consumers may continue reading `catalog_entities`. Both representations describe the same preferred choices and leave gesture/load authorization unchanged.
+
+
+## Picker service
+
+The admin-only `ha_gesture_bridge.get_devices` service returns a bounded
+read-only list of physical device choices and native light and switch groups.
+The version 1 envelope contains `revision`, `total`, `pages`, `page` and
+`unchanged`. Request page 1 without a revision to read a fresh list. Send that
+revision when requesting later pages. If the list changes during a transfer, the
+service returns `snapshot_changed`. Sending a matching revision on page 1 gives
+an unchanged confirmation without `entities`.
+
+Starting with HA Gesture Bridge 0.1.3, `eligibility_version: 1` accompanies every
+response, including unchanged confirmations. It guarantees that the service excludes disabled devices and
+disabled, hidden, configuration or diagnostic entities. It excludes Control4
+exports by entity platform, entity config entry, device identifier namespace
+or device config entry, including lights that wrap exported switches. Exact
+non-inverted switch-as-light wrappers can collapse with eligible switches.
+When Home Assistant hides a wrapped switch, its visible wrapper can retain its
+physical device association. A hidden registry entry is ineligible as a
+selection alias.
+
+Changes to the published choices affect the revision, including changes to
+their eligibility. The advertised eligibility applies to that revision and is
+separate from driver-family capabilities and current control readiness. Older
+helpers omit the field. Consumers can use their existing verification path
+with an absent or unsupported eligibility version.
