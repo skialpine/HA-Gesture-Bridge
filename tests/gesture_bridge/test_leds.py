@@ -38,7 +38,8 @@ async def test_actual_services_publish_confirmed_snapshot_without_gestures(hass)
     assert attrs["bridge_led_version"] == 1
     assert channel(hass, f) == {"id": "status", "label": "Status LED", "button_id": "toggle",
         "available": True, "colors": ["000000", "0000FF", "00FF00", "FF0000", "FFFFFF"],
-        "brightness_supported": True, "color": "FFFFFF", "brightness": 100,
+        "brightness_supported": True, "brightness_levels": [30, 60, 100],
+        "color": "FFFFFF", "configured_color": "FFFFFF", "brightness": 100,
         "color_supported": True, "behaviors": ["always_on", "always_off"], "behavior": "always_on"}
     assert not any(value.entity_id in json.dumps(attrs["bridge_leds"]) for value in (f["color"], f["power"], f["brightness"]))
     f["paddle"]._trigger_event("KeyPressed")
@@ -311,6 +312,7 @@ async def test_manual_mapping_color_only_keeps_power_off_and_behavior_is_separat
     assert f["calls"] == [(f["color"].entity_id, "Red")]
     assert f["power"].current_option == "Always off"
     assert channel(hass, f)["behavior"] == "always_off" and channel(hass, f)["color"] == "000000"
+    assert channel(hass, f)["configured_color"] == "FF0000"
     f["calls"].clear()
     await command(hass, f, behavior="always_on")
     assert f["calls"] == [(f["power"].entity_id, "Always on")]

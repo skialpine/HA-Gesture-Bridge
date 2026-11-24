@@ -14,7 +14,7 @@ from zwave_js_server.model.value import ConfigurationValue
 
 from custom_components.ha_gesture_bridge.config import DOMAIN
 from custom_components.ha_gesture_bridge import zwave_indicator as indicator
-from custom_components.ha_gesture_bridge.led_profiles import PROFILES, profile_for_device
+from custom_components.ha_gesture_bridge.led_profiles import PROFILES, ParameterSchema, profile_for_device
 from custom_components.ha_gesture_bridge.zwave_parameters import discover_parameters
 from tools.generate_led_fixture import setup_fixture, state_fixture
 
@@ -119,9 +119,9 @@ async def test_actual_aggregate_auto_discovers_office_palette_without_enabling_e
     assert attrs["bridge_led_version"] == 1
     assert channel(hass, f) == {"id": "status", "label": "Status LED", "button_id": "toggle",
         "available": True, "colors": ["000000", "0000FF", "00FF00", "FF0000", "FFFFFF"],
-        "brightness_supported": True, "brightness": 60, "color_supported": True,
+        "brightness_supported": True, "brightness_levels": [30, 60, 100], "brightness": 60, "color_supported": True,
         "behaviors": ["follow_load", "follow_load_inverted", "always_on", "always_off"],
-        "behavior": "follow_load_inverted"}
+        "behavior": "follow_load_inverted", "configured_color": "0000FF"}
     f["paddle"]._trigger_event("KeyPressed")
     f["paddle"].async_write_ha_state()
     await hass.async_block_till_done()
@@ -150,6 +150,40 @@ async def test_profiles_use_reviewed_product_specific_parameter_numbers(hass, mo
     writes = [args[0] for _cc, method, args in node.calls if method == "set"]
     assert writes == [{"parameter": color_parameter, "value": 1}, {"parameter": 2, "value": 3},
                       {"parameter": brightness_parameter, "value": 2}]
+
+
+@pytest.mark.parametrize("model,product_type", [("DZ15S", 0x3401), ("DZ6HD", 0x3201)])
+async def test_leviton_locator_led_exposes_only_supported_behaviors(hass, monkeypatch, model, product_type):
+    profile = next(item for item in PROFILES if item.model == model)
+
+    def add_hardware_parameters(node):
+        node.manufacturer_id, node.product_type, node.product_id = 0x001D, product_type, 1
+        locator = ParameterSchema(7, "Locator LED Status", (
+            (0, "LED always off"), (254, "LED on when switch is on"), (255, "LED on when switch is off"),
+        ))
+        node.add_parameter(locator, 255)
+        if model == "DZ6HD":
+            node.add_parameter(ParameterSchema(6, "LED Dim Level Indicator Timeout",
+                                              ((0, "Always Off"), (255, "Always On"))), 255)
+
+    f, _row, node, _ = await office(hass, monkeypatch, profile=profile, change=add_hardware_parameters)
+    assert node.calls == [(112, "get", (7,))]
+    assert channel(hass, f) == {"id": "status", "label": "Locator LED", "button_id": "toggle",
+        "available": True, "colors": ["000000"], "color_supported": False, "brightness_supported": False,
+        "behaviors": ["follow_load", "follow_load_inverted", "always_off"], "behavior": "follow_load_inverted"}
+    for behavior, raw in (("follow_load", 254), ("always_off", 0), ("follow_load_inverted", 255)):
+        node.calls.clear()
+        await command(hass, f, behavior=behavior)
+        assert node.calls == [(112, "set", ({"parameter": 7, "value": raw},)), (112, "get", (7,))]
+        assert channel(hass, f)["behavior"] == behavior
+        assert channel(hass, f).get("color") == ("000000" if raw == 0 else None)
+    node.calls.clear()
+    for unsupported in ({"behavior": "always_on"}, {"brightness": 60}, {"color": "FFFFFF"}):
+        with pytest.raises(ServiceValidationError):
+            await command(hass, f, **unsupported)
+    assert node.calls == []
+    if model == "DZ6HD":
+        assert node.physical[6] == 255
 
 
 async def test_readback_wins_over_requested_values_and_off_preserves_saved_color(hass, monkeypatch):
@@ -461,6 +495,8 @@ async def test_color_only_preserves_every_local_led_behavior(hass, monkeypatch, 
     assert [(args[0]["parameter"], args[0]["value"]) for _cc, method, args in node.calls if method == "set"] == [(14, 3)]
     assert node.physical[2] == mode
     assert channel(hass, f)["behavior"] == {0: "follow_load_inverted", 1: "follow_load", 2: "always_off", 3: "always_on"}[mode]
+    assert channel(hass, f)["configured_color"] == "FF0000"
+    assert channel(hass, f).get("color") == {0: None, 1: None, 2: "000000", 3: "FF0000"}[mode]
     assert state_fixture(hass, f["aggregate"])["attributes"]["bridge_led_command_version"] == 2
 
 

@@ -1,0 +1,162 @@
+{
+  "catalog": {
+    "eligibility_version": 1,
+    "entities": [
+      {
+        "attributes": {
+          "device_choice": {
+            "choice_id": "device:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "gestures": "candidate",
+            "kind": "switch",
+            "name": "Fixture Switch",
+            "source_load": {
+              "available": true,
+              "domain": "switch",
+              "entity_id": "switch.fixture_relay",
+              "name": "fixture_relay",
+              "registry_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "type": "device_choice",
+            "version": 1
+          }
+        },
+        "availability": "unknown",
+        "domain": "switch",
+        "entity_id": "device:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Fixture Switch",
+        "state": "unknown"
+      }
+    ],
+    "native_revision": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "page": 1,
+    "pages": 1,
+    "revision": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "total": 1,
+    "unchanged": false,
+    "version": 1
+  },
+  "led_feedback": {
+    "attributes": {
+      "bridge_acknowledgment_version": 2,
+      "bridge_buttons": [
+        {
+          "gestures": [
+            {
+              "id": "press_1",
+              "kind": "press",
+              "label": "1 Press",
+              "press_count": 1
+            },
+            {
+              "id": "hold_start",
+              "kind": "hold_start",
+              "label": "Hold Start"
+            },
+            {
+              "id": "release",
+              "kind": "release",
+              "label": "Release"
+            },
+            {
+              "id": "hold_repeat",
+              "kind": "hold_repeat",
+              "label": "Hold Repeat"
+            }
+          ],
+          "id": "top",
+          "label": "Top"
+        }
+      ],
+      "bridge_contract_version": "1.0",
+      "bridge_control_id": "fixture-led-control",
+      "bridge_error_count": 0,
+      "bridge_led_command_version": 2,
+      "bridge_led_version": 1,
+      "bridge_leds": [
+        {
+          "available": true,
+          "behavior": "always_on",
+          "behaviors": [
+            "always_on",
+            "always_off"
+          ],
+          "brightness": 60,
+          "brightness_levels": [
+            30,
+            60,
+            100
+          ],
+          "brightness_supported": true,
+          "button_id": "toggle",
+          "color": "0000FF",
+          "color_supported": true,
+          "colors": [
+            "000000",
+            "0000FF",
+            "00FF00",
+            "FF0000",
+            "FFFFFF"
+          ],
+          "configured_color": "0000FF",
+          "id": "status",
+          "label": "Status LED"
+        }
+      ],
+      "bridge_load": null,
+      "bridge_session_id": "fixture-led-session",
+      "bridge_source_device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bridge_sources": [
+        {
+          "availability": "available",
+          "id": "native-source",
+          "ready": true
+        }
+      ],
+      "bridge_unmapped_count": 0,
+      "bridge_update_kind": "snapshot",
+      "event_type": null,
+      "event_types": [
+        "press",
+        "hold_start",
+        "release",
+        "hold_repeat"
+      ],
+      "friendly_name": "Fixture LED Control"
+    },
+    "entity_id": "event.fixture_led_control",
+    "last_updated": "2026-11-15T09:00:00.000Z",
+    "state": "unknown"
+  },
+  "prepared": {
+    "control_id": "cccccccccccccccccccccccccccccccc",
+    "controlled_load": {
+      "available": true,
+      "domain": "switch",
+      "entity_id": "switch.fixture_relay",
+      "registry_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "controlled_load_origin": "selected_endpoint",
+    "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "gesture_entity_id": "event.fixture_switch_gestures",
+    "input_ready": true,
+    "name": "Fixture Switch",
+    "source_load": {
+      "available": true,
+      "domain": "switch",
+      "entity_id": "switch.fixture_relay",
+      "registry_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "version": 1
+  },
+  "unchanged": {
+    "eligibility_version": 1,
+    "native_revision": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "page": 1,
+    "pages": 1,
+    "revision": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "total": 1,
+    "unchanged": true,
+    "version": 1
+  }
+}

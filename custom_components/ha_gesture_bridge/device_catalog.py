@@ -32,6 +32,17 @@ def eligible_entry(hass, entry, device, *, allow_hidden=False):
             and (device is None or eligible_device(hass, device)))
 
 
+def control_event(hass, control_id):
+    """Return the registered aggregate and whether consumers can select it."""
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("event", DOMAIN, control_id)
+    if entity_id is None:
+        return None, False
+    entry = registry.async_get(entity_id)
+    device = dr.async_get(hass).async_get(entry.device_id) if entry and entry.device_id else None
+    return entry, entry is not None and eligible_entry(hass, entry, device)
+
+
 def switch_as_light(hass, registry, entry):
     """Resolve a wrapper's actual target and inversion from its HA configuration."""
     if entry.domain != "light" or entry.platform != "switch_as_x":
@@ -50,7 +61,7 @@ def load_record(hass, entry):
             "available": bool(state and state.state in ("on", "off"))}
 
 
-def _device_choices(hass):
+def _device_choices(hass, *, include_load_names=False):
     # Imports here keep the existing catalog helpers as the single owner of
     # wrapper equivalence, without coupling their entity projection to choices.
     from .sensor import _catalog_row, _preferred_rows
@@ -109,6 +120,10 @@ def _device_choices(hass):
         remote = bool(re.search(r"remote|keypad|controller|button|sensor_switch|ts004", device.model or "", re.I))
         if not endpoints and device.id not in inputs and device.id not in controls and not remote:
             continue
+        matches = controls.get(device.id, [])
+        gesture, gesture_eligible = control_event(hass, matches[0].unique_id) if len(matches) == 1 else (None, False)
+        if not endpoints and gesture is not None and not gesture_eligible:
+            continue
         area = ar.async_get(hass).async_get_area(device.area_id) if device.area_id else None
         name = (device.name_by_user or device.name or "HA Device")[:128]
         for endpoint, row, aliases in endpoints or [(None, None, ())]:
@@ -119,25 +134,21 @@ def _device_choices(hass):
                       "choice_id": f"device:{device.id}:{endpoint.id if endpoint else 'none'}",
                       "device_id": device.id, "name": label,
                       "kind": row["kind"] if row else "remote",
-                      "gestures": "confirmed" if device.id in controls else "candidate"}
-            matches = controls.get(device.id, [])
-            if len(matches) == 1:
-                gesture_id = registry.async_get_entity_id("event", DOMAIN, matches[0].unique_id)
-                gesture = registry.async_get(gesture_id) if gesture_id else None
-                gesture_device = devices.async_get(gesture.device_id) if gesture and gesture.device_id else None
-                if gesture and eligible_entry(hass, gesture, gesture_device):
-                    record["gesture_entity_id"] = gesture_id
-                elif endpoint is None and gesture:
-                    continue
+                      "gestures": "confirmed" if gesture_eligible else "candidate"}
+            if gesture_eligible:
+                record["gesture_entity_id"] = gesture.entity_id
             if endpoint:
                 record["source_load"] = load_record(hass, endpoint)
+                if include_load_names and row["friendly_name"] != endpoint.entity_id:
+                    record["source_load"]["name"] = row["friendly_name"][:128]
             if area:
                 record["area"] = area.name[:128]
             yield record, aliases
 
 
-def device_choices(hass):
-    return sorted((choice for choice, _ in _device_choices(hass)), key=lambda choice: choice["choice_id"])
+def device_choices(hass, *, include_load_names=False):
+    return sorted((choice for choice, _ in _device_choices(hass, include_load_names=include_load_names)),
+                  key=lambda choice: choice["choice_id"])
 
 
 def selected_endpoint(hass, device_id, registry_id):

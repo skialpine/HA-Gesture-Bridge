@@ -2,12 +2,21 @@
 
 HA Gesture Bridge discovers supported status LED controls when you choose a physical device. Compatible consumers, including the Control4 HA Switch and Dimmer drivers, see the available indicators and their capabilities automatically.
 
-## Automatic setup
+## Set an indicator from Control4
 
-1. Add or edit a control and choose its physical device.
-2. Leave **Customize LED mappings (advanced)** unchecked.
-3. Review the **Status LEDs** summary with the detected buttons, then select **Save**.
-4. In Control4, select the gesture control and check **LED Status**. Use the driver's LED commands or explicitly enable its LED feedback option when you want an indicator to follow the connected light.
+1. In the Light or Switch driver's **Device Setup**, choose the wall switch and
+   select **Use selected device**.
+2. Find **Indicator lights on** followed by the switch name. If the channel
+   offers **Indicator color**, choose a color such as Blue. Color, behavior and
+   brightness dropdowns apply on selection. For a brightness number field,
+   enter a percentage and select **Apply**.
+3. Wait for the setting to be reported, then reopen Device Setup and check the
+   saved value. Check the physical indicator separately on the wall switch. If
+   it follows the load, check it when the load is in the appropriate state.
+
+For Home Assistant–only or advanced setup, add or edit a control in HA Gesture
+Bridge and select its physical device. Leave **Customize LED mappings (advanced)**
+unchecked to use the detected settings. Review **Status LEDs**, then save.
 
 You do not need to copy entity IDs or write JSON for supported devices. Discovery reads the device's capabilities and never changes a relay, sends an LED command or changes LED behavior during setup, startup, reconnect or a snapshot.
 
@@ -29,31 +38,39 @@ Each discovered channel represents one controllable indicator. A shared indicato
 | Zooz ZEN30 | Dimmer and relay indicators | Independent on/off, color and brightness |
 | Zooz ZEN32 | Main switch and four small-button indicators | Independent on/off, color and brightness; reported firmware options select the palette and levels |
 | GE/Enbrighten 46201 / ZW4008; Jasco 46562 / ZW4008 | One fixed-color status LED | On/off |
+| Leviton DZ15S, DZ6HD | One fixed-color locator LED | On when the load is on, on when the load is off, or always off |
 
 Profiles validate the actual hardware identity and the complete parameter option tables. Older or different firmware that does not expose the reviewed controls remains unsupported. Standard Indicator discovery can cover additional devices without a manufacturer profile.
 
-A fixed-color LED uses `always_on` / `always_off` behavior commands; its metadata uses logical white/black to report on/off without promising a physical white LED. Brightness commands are unavailable when the device does not expose brightness.
+A fixed-color LED uses the behavior commands the device supports. If it supports forced on or off, its metadata uses logical white or black to report that setting. Brightness commands require a device that exposes adjustable LED brightness.
 
-Multi-button devices keep all detected button inputs. Top, Bottom and Toggle assignments are optional; additional buttons retain independent named programming events. The C4 drivers' LED command lists include all available indicators with friendly labels and stable IDs. Direct light Controller Links still represent Top, Bottom and Toggle.
+Multi-button devices keep all detected button inputs. Top, Bottom and Toggle assignments are optional; additional buttons retain independent named programming events. The Control4 drivers list indicator channels by name. A Light's **Top Control Link**, **Bottom Control Link** and **Toggle Control Link** connect the corresponding paddles to existing Control4 lights.
 
 ## LED behavior
 
-In a compatible C4 Switch or Dimmer driver, use **Properties → LED Behavior**. The default is **Use Device Setting**, which leaves the device's current LED mode unchanged.
+In the current Control4 Light or Switch suite, open **Device Setup** and find
+**Indicator lights on** followed by your device’s name.
+Use **Behavior** for an individual channel or **Indicator behavior** when the
+driver shows a shared setting. Dropdowns apply on selection. Reopening Device
+Setup shows the setting reported by Home Assistant.
 
-Supported devices offer these independent choices:
+The device and its Control4 connections determine which choices are available.
 
 | Choice | Result |
 | --- | --- |
-| Use Device Setting | Stop C4 bound-device tracking and leave the current hardware mode unchanged. This does not restore an earlier mode. |
-| Follow Load | LED follows the physical device's own load. |
-| Follow Load (Inverted) | LED is on when the physical load is off. |
-| Always On | Force the indicator on without changing its stored color. |
-| Always Off | Force the indicator off without changing its stored color. |
-| Follow Bound Device | Dimmer only: use state feedback from the connected C4 light. |
+| Keep current LED setting | End Control4 tracking and leave the device in its current LED mode. |
+| On when the device is on | The LED lights when the wall device's own load is on. |
+| On when the device is off | The LED lights when the wall device's own load is off. |
+| Always on | Keep the indicator on and preserve its saved color. |
+| Always off | Keep the indicator off and preserve its saved color. |
+| Follow the linked light | The Light driver follows the connected Control4 light. |
 
-Only supported hardware choices are shown. Selecting a hardware behavior explicitly writes that setting; startup, reconnect and ordinary snapshots do not reapply it.
-
-For **Follow Bound Device**, choose the Controller Link in **LED Feedback Source**, which appears beside the behavior setting. The Dimmer defaults this source to Top when you first select that behavior. Choose the link connected to the light whose state should drive the indicators, then configure their saved On Color and Off Color. A chosen black color means off. Following a C4 light uses explicit indicator behavior commands and does not rely on the physical relay changing state.
+For **Follow the linked light**, use **Follow the light linked to** to choose the
+paddle connected to the Control4 light you want to track. The driver saves
+those two choices as you select them. Use **When the light is on** and
+**When the light is off** to choose tracking colors. Black in a saved tracking
+color turns the indicator off. The indicator follows feedback from the chosen
+light.
 
 **Set LED Current Color** now changes color only. On a ZEN76, that changes parameter 14 while preserving parameter 2. Brightness changes only parameter 15. To turn the LED off, select **Always Off** or use the **Set LED Behavior** programming command. Black is not a writable color option on these Zooz devices. Fixed-color indicators use behavior commands rather than color commands.
 
@@ -123,5 +140,9 @@ The service validates the entire action, including current endpoint availability
 For custom mappings, reported color and brightness come only from confirmed endpoint state. There is no optimistic feedback. An unknown/unavailable/restored endpoint, missing configured option or invalid numeric range makes the channel unavailable. A valid current option outside the configured mapping leaves its color or brightness unknown until a mapped value is confirmed. A known power-off option reports black regardless of the saved color.
 
 Confirmed changes publish aggregate **snapshots**. They never create a gesture, increment the gesture sequence, acknowledge a click, or send another LED command. The advertised metadata contains channel IDs, labels, supported palette, availability and confirmed state; it contains no backend entity IDs or option names. Downloaded diagnostics also exclude LED backend identities and configuration.
+
+When Home Assistant confirms a writable color setting, `configured_color` reports the saved color even if the LED is off or follows the switch. `color` describes the reported output separately. Missing readback stays unknown.
+
+Verified profiles and custom mappings publish their discrete brightness choices as `brightness_levels`. Device Setup shows those choices alongside the confirmed current brightness. Other supported brightness controls retain the percentage input.
 
 See the [wire contract](gesture-contract.md#optional-status-leds) for receiver integration. These LEDs are distinct from brightness of the controlled room light. Keep load/dimming behavior in DeviceSide, your explicit HA automations, or the connected Control4 light driver.

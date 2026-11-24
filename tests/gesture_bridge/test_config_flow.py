@@ -14,7 +14,8 @@ from custom_components.ha_gesture_bridge.config import DOMAIN
 async def install(hass):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     assert result["step_id"] == "user"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"import_yaml": False})
+    assert not result["data_schema"].schema
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] == "create_entry"
     await hass.async_block_till_done()
     return result["result"]
@@ -42,6 +43,21 @@ async def start_control(hass, entry, device, *, leds=False):
     assert result["step_id"] == "user" and result["last_step"] is False
     assert {key.schema for key in result["data_schema"].schema} == {"device_id", "configure_leds"}
     return await hass.config_entries.subentries.async_configure(result["flow_id"], {"device_id": device.id, "configure_leds": leds})
+
+
+async def test_legacy_controls_are_imported_only_when_requested(hass):
+    config = {"unique_id": "existing-native", "name": "Existing Native", "source_entity_id": "event.paddle",
+              "button_id": "top", "button_label": "Top",
+              "actions": {"KeyPressed": {"kind": "press", "press_count": 1}}}
+    legacy = {"existing-native": {"config": config}}
+    hass.data[DOMAIN] = {"yaml_controls": legacy}
+    form = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert default_input(form) == {"import_yaml": False}
+    result = await hass.config_entries.flow.async_configure(form["flow_id"], {})
+    assert result["type"] == "create_entry"
+    await hass.async_block_till_done()
+    assert not result["result"].subentries and not result["result"].data["imported_yaml"]
+    assert hass.data[DOMAIN]["yaml_controls"]["existing-native"] == {"config": config}
 
 
 async def test_initial_yaml_import_requires_mqtt_and_retries_without_partial_import(hass, monkeypatch):
@@ -286,6 +302,9 @@ def test_translations_use_supported_save_override_and_no_protocol_chooser():
         assert steps["user"]["data"]["configure_leds"] == "Customize LED mappings (advanced)"
         assert "{led_summary}" in steps["review"]["description"]
         assert "{led_summary}" in steps["review_leds"]["description"]
+        assert "Quick Setup" in strings["config"]["step"]["user"]["description"]
+        for step in ("review", "review_leds"):
+            assert "Save with the field empty to leave it unlinked." in steps[step]["description"]
 
 
 async def test_removed_device_cannot_be_saved_after_review_or_optional_led_step(hass):
@@ -449,3 +468,61 @@ async def test_changing_device_removes_previous_led_authority_with_visible_notic
     assert not control.data.get("leds") and backend.entity_id not in json.dumps(dict(control.data))
     aggregate_id = er.async_get(hass).async_get_entity_id("event", DOMAIN, control.unique_id)
     assert not hass.states.get(aggregate_id).attributes.get("bridge_leds")
+
+
+def linked_target_suggestion(review):
+    field = next(field for field in review["data_schema"].schema if field.schema == "load_entity_id")
+    return (field.description or {}).get("suggested_value")
+
+
+@pytest.mark.parametrize("configure_leds, target", [(False, None), (True, "switch.new_load")])
+async def test_changed_source_requires_reselecting_the_linked_target(hass, configure_leds, target):
+    entry = await install(hass)
+    original, _ = device_fixture(hass, entry, "Original Switch")
+    replacement, _ = device_fixture(hass, entry, "Replacement Switch")
+    review = await start_control(hass, entry, original)
+    old_target = "light.old_load"
+    result = await hass.config_entries.subentries.async_configure(review["flow_id"],
+        default_input(review) | {"load_entity_id": old_target})
+    assert result["type"] == "create_entry"
+    await hass.async_block_till_done()
+    control = next(iter(entry.subentries.values()))
+    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": control.subentry_id})
+    review = await hass.config_entries.subentries.async_configure(flow["flow_id"], {
+        "device_id": replacement.id, "configure_leds": configure_leds})
+    assert next(iter(review["data_schema"].schema)).schema == "load_entity_id"
+    assert linked_target_suggestion(review) is None
+    values = default_input(review)
+    if target:
+        values["load_entity_id"] = target
+    retry = await hass.config_entries.subentries.async_configure(review["flow_id"], values | {"name": ""})
+    assert retry["errors"] == {"base": "invalid_control"}
+    assert linked_target_suggestion(retry) == target
+    assert control.data["source_device_id"] == original.id and control.data["load_entity_id"] == old_target
+    result = await hass.config_entries.subentries.async_configure(retry["flow_id"], values)
+    if configure_leds:
+        assert result["step_id"] == "leds"
+        result = await hass.config_entries.subentries.async_configure(result["flow_id"], {"configuration": "[]"})
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert control.data["source_device_id"] == replacement.id and control.data.get("load_entity_id") == target
+
+
+async def test_same_source_suggests_existing_target_until_user_clears_it(hass):
+    entry = await install(hass)
+    device, _ = device_fixture(hass, entry)
+    review = await start_control(hass, entry, device)
+    old_target = "light.office"
+    result = await hass.config_entries.subentries.async_configure(review["flow_id"],
+        default_input(review) | {"load_entity_id": old_target})
+    assert result["type"] == "create_entry"
+    await hass.async_block_till_done()
+    control = next(iter(entry.subentries.values()))
+    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "control"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": control.subentry_id})
+    review = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"device_id": device.id})
+    assert linked_target_suggestion(review) == old_target
+    retry = await hass.config_entries.subentries.async_configure(review["flow_id"], default_input(review) | {"name": ""})
+    assert retry["errors"] == {"base": "invalid_control"} and linked_target_suggestion(retry) is None
+    assert control.data["load_entity_id"] == old_target

@@ -21,7 +21,7 @@ from custom_components.ha_gesture_bridge.config import DOMAIN
 
 async def activation_fixture(hass):
     flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    saved = await hass.config_entries.flow.async_configure(flow["flow_id"], {"import_yaml": False})
+    saved = await hass.config_entries.flow.async_configure(flow["flow_id"], {})
     await hass.async_block_till_done()
     entry = saved["result"]
     device = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id,

@@ -13,9 +13,10 @@ from .zwave_indicator import ZWaveIndicatorController, _resolve_node
 
 
 def _behaviors(definition):
-    return {"follow_load": definition.follow_load_value,
-            "follow_load_inverted": definition.follow_load_inverted_value,
-            "always_on": definition.on_value, "always_off": definition.off_value}
+    modes = {"follow_load": definition.follow_load_value,
+             "follow_load_inverted": definition.follow_load_inverted_value,
+             "always_on": definition.on_value, "always_off": definition.off_value}
+    return {behavior: value for behavior, value in modes.items() if value is not None}
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,13 @@ class ParameterChannel:
     @property
     def label(self):
         return self.definition.label
+
+    @property
+    def palette(self):
+        if self.color is not None:
+            return self.color.palette
+        # Logical white lets existing fixed-color channels report forced on.
+        return (("FFFFFF", 0),) if self.definition.on_value is not None else ()
 
 
 def _setting(node, variants):
@@ -122,21 +130,25 @@ class ZWaveParameterLEDController(ZWaveIndicatorController):
         roles = self._button_ids()
         result = []
         for channel in self._channels:
-            palette = channel.color.palette if channel.color else (("FFFFFF", 0),)
+            behaviors = _behaviors(channel.definition)
             item = {"id": channel.id, "label": channel.label, "button_id": roles[channel.id],
-                    "available": bool(available), "colors": ["000000", *sorted(color for color, _ in palette)],
+                    "available": bool(available), "colors": ["000000", *sorted(color for color, _ in channel.palette)],
                     "brightness_supported": channel.brightness is not None,
                     "color_supported": channel.color is not None,
-                    "behaviors": list(_behaviors(channel.definition))}
+                    "behaviors": list(behaviors)}
+            if channel.brightness:
+                item["brightness_levels"] = sorted(level for level, _ in channel.brightness.levels)
             if available:
                 confirmed = self._confirmed.get(channel.id, {})
                 mode = confirmed.get("mode")
-                actual_behavior = next((key for key, value in _behaviors(channel.definition).items() if value == mode), None)
+                actual_behavior = next((key for key, value in behaviors.items() if value == mode), None)
                 if actual_behavior is not None:
                     item["behavior"] = actual_behavior
-                if mode == channel.definition.off_value:
+                if channel.color and "color" in confirmed:
+                    item["configured_color"] = confirmed["color"]
+                if actual_behavior == "always_off":
                     item["color"] = "000000"
-                elif mode == channel.definition.on_value:
+                elif actual_behavior == "always_on":
                     if channel.color is None:
                         item["color"] = "FFFFFF"
                     elif "color" in confirmed:
@@ -176,7 +188,7 @@ class ZWaveParameterLEDController(ZWaveIndicatorController):
                 raise ServiceValidationError("Device LED profile is unsupported or its parameter schema changed")
             self._assert_active(channel, node)
             definition = channel.definition
-            palette = dict(channel.color.palette) if channel.color else {"FFFFFF": 0}
+            palette = dict(channel.palette)
             behaviors = _behaviors(definition)
             if behavior is not None and behavior not in behaviors:
                 raise ServiceValidationError("LED behavior is unsupported")

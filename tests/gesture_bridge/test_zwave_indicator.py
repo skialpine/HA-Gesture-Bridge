@@ -57,10 +57,10 @@ async def test_standard_discovery_ignores_unsafe_and_non_indicator_values(hass, 
     channels = indicator.discover_indicators(hass, "physical-device")
     assert [(row.endpoint, row.indicator) for row in channels] == [(0, 0x43), (1, 0x44)]
     assert channels[0].level_id and channels[0].binary_id
-    assert "2 standard" in indicator.indicator_summary(hass, "physical-device")
+    assert "2 status lights" in indicator.indicator_summary(hass, "physical-device")
     runtime.values = {key: row for key, row in runtime.values.items() if row.property_ == 0x50}
     assert indicator.discover_indicators(hass, "physical-device") == ()
-    assert "identification blinking only" in indicator.indicator_summary(hass, "physical-device")
+    assert "blink for identification" in indicator.indicator_summary(hass, "physical-device")
     control.close()
 
 
@@ -294,7 +294,7 @@ async def test_dead_node_unknown_and_newly_discovered_channels(hass, monkeypatch
 
 
 async def test_non_zwave_device_has_no_optional_import(hass, monkeypatch):
-    assert indicator.indicator_summary(hass, "missing") == "No standard Z-Wave status LED controls detected."
+    assert indicator.indicator_summary(hass, "missing") == "No status lights available."
 
 
 async def test_brightness_only_preserves_power_and_binary_off_wins(hass, monkeypatch):

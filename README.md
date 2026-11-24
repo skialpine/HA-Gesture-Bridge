@@ -21,9 +21,10 @@ Copy this repository’s `custom_components/ha_gesture_bridge` folder into your 
 
 ## Select a device
 
-With the matching HA Coordinator, HA Switch or HA Light drivers, select the
-physical switch/light/remote in Composer **Actions → Select Device**. HA prepares
-its gestures and supported LEDs on first use. Browsing creates no gesture
+For the current Home Assistant Light and Switch suite, open **Device Setup**
+after configuring the Home Assistant Connection. Choose the physical switch,
+dimmer or remote, then select **Use selected device**. HA prepares its gestures
+and supported LEDs on first use. Browsing creates no gesture
 entities, attaches no input listeners and changes no device parameters.
 Ordinary loads without physical gestures use their existing entity directly.
 
@@ -35,9 +36,10 @@ disabled endpoints and devices exported from Control4. The helper is optional
 for native light and switch setup. See the [picker contract](docs/catalog.md#picker-service)
 for response details.
 
-Automatic preparation requires an **admin HA access token** in the Coordinator.
-A permission error does not mean HA is disconnected. Native direct control
-without the companion keeps its existing permission requirements.
+Use an administrator’s Home Assistant token in the current suite’s Home
+Assistant Connection. The driver uses it for device feedback and automatic
+preparation. If Home Assistant is connected and setup reports a permission
+error, check the account used to create the token.
 
 An activated device keeps one event entity across restarts and can be reused
 by several consumers. No separate event entity selection is required. Devices
@@ -56,8 +58,8 @@ replacement source; a restart cannot do so silently.
 An explicitly linked HA light takes precedence over the physical relay and
 retains that choice across preparation/restarts. If the target is missing or
 unavailable, load commands are blocked. Clear the link explicitly to return to
-the selected physical endpoint. A bound C4 light remains controlled through
-Composer Controller Links and does not command the HA relay.
+the selected physical endpoint. A connected Control4 light uses the light
+selected by its Control Link in Composer.
 
 **Add control** remains available for HA-only or advanced manual setup: choose
 a device, review the detected inputs, assign optional paddle roles, and save.
@@ -73,11 +75,20 @@ Press each button and try a double tap. In **Tools → States**, find the new ge
 
 **Home Assistant:** use the new event entity in an automation. The [automation examples](docs/automations.md) show how to act on fresh gestures without replaying startup history.
 
-**Control4:** select the gesture control using **Actions → Select Device** in the compatible HA Switch or HA Light driver, then choose its Operation Mode:
+**Control4:** choose the device in **Device Setup**, then select the Light or
+Switch in Composer **Programming**. Choose the button and gesture the device
+reports, including up to three taps. If events are missing, refresh the
+**Device Events** list and reselect the driver. Look for a label such as
+**Top - 2 taps** on a Switch. Reconnect Composer to Director if the events are still stale.
+**Button behavior** sets how the selected wall control is used:
 
-- **Programming Events Only** for Composer button-event programming.
-- **Control Connected C4 Light** to operate an existing C4 light through HA Light’s Top/Bottom/Toggle **Controller Links**.
-- **Control HA Device with Button Events** for gestures plus an explicitly linked HA load.
+- **Automatic** follows the device and its existing connections.
+- **Buttons only** keeps button presses available for programming with app control off.
+- On a Light, **Connected Control4 light** operates existing Control4 lighting through **Top Control Link**, **Bottom Control Link** or **Toggle Control Link**.
+- On a Switch with a linked device and buttons, **Control device and report presses** uses the linked load and makes gestures available to Programming.
+
+For an older prototype Control4 driver, use the setup instructions included
+with that driver to find its controls and programming labels.
 
 For smart bulbs or a separate C4 light, configure the wall switch’s smart-bulb or detached mode according to its manufacturer’s instructions.
 
@@ -85,7 +96,11 @@ For smart bulbs or a separate C4 light, configure the wall switch’s smart-bulb
 
 Status indicators are discovered automatically through the standard Z-Wave Indicator command class and supported device profiles, including Zooz LED configuration controls. The review screen shows what is supported. On/off, brightness and colors are exposed only when the device and its discovery path provide them; an identification blink alone does not provide a status LED. No LED commands run during setup or restart.
 
-In the C4 driver, **Properties → LED Behavior** controls the indicator independently of color. **Use Device Setting** is the default. HA Light also supports **Follow Bound Device** for a connected C4 light. Setting a color preserves the device’s LED mode.
+In the Control4 driver's **Device Setup**, look for **Indicator lights on**
+followed by the device's name. Color, behavior and brightness dropdowns apply
+when you choose an option. For a brightness number field, enter a percentage
+and select **Apply**. The Light can also follow a connected Control4 light.
+Setting a color preserves the device's LED mode.
 
 Automatic profiles include Zooz ZEN26/27/30/32/71/72/76/77/78 and the listed GE/Jasco models. Multi-button controls export each input separately, and compatible C4 LED commands can select every indicator. See the [supported device table and LED setup guide](docs/leds.md).
 
@@ -97,6 +112,9 @@ Install Marketplace updates and restart HA. Existing controls normally keep thei
 
 - **Integration missing:** restart HA, refresh the browser and search under Add integration. For a manual install, check the folder path above.
 - **No buttons detected:** check the physical device’s HA integration and enable its event entities or scene reporting. Automatic discovery needs event entities or supported physical device triggers. [Source support and advanced configuration](docs/sources.md) covers exceptions.
-- **C4 does not respond:** check the selected gesture entity, Operation Mode, Coordinator connection and Controller Link bindings.
+- **Control4 does not respond:** check the selected device and **Controls** in
+  **Device Setup**. If the driver reports a disconnected Home Assistant server,
+  check the **Home Assistant Connection** in Composer. For a Control4 light,
+  check the corresponding **Control Link**.
 
 Based on [DeviceSide/DeviceSide](https://github.com/DeviceSide/DeviceSide) by jasonmx and its contributors. See [credits](UPSTREAM.md) and [LICENSE](LICENSE).

@@ -162,9 +162,13 @@ class LEDController:
                     "brightness_supported": config.brightness is not None,
                     "color_supported": config.color is not None,
                     "behaviors": ["always_on", "always_off"] if config.power else []}
+            if config.brightness:
+                item["brightness_levels"] = sorted(int(level) for level in config.brightness.values)
             if available:
                 power = endpoints["power"].mapped_state() if "power" in endpoints else "on"
                 actual_color = endpoints["color"].mapped_state() if "color" in endpoints else "FFFFFF"
+                if config.color and actual_color is not None:
+                    item["configured_color"] = actual_color
                 if power == "off":
                     item["color"] = "000000"
                 elif power == "on" and actual_color is not None:

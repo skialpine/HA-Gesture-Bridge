@@ -63,7 +63,7 @@ class LEDChannelProfile:
     colors: tuple[ColorSetting, ...] = ()
     brightness: tuple[BrightnessSetting, ...] = ()
     scene_id: int | None = None
-    on_value: int = 3
+    on_value: int | None = 3
     off_value: int = 2
     follow_load_value: int = 1
     follow_load_inverted_value: int = 0
@@ -158,7 +158,15 @@ _JASCO = (
         ("GE/Enbrighten", "GE", "Enbrighten"), ("46562",)),
 )
 
-PROFILES = (*_PADDLES, *_ON_OFF, _ZEN30, _ZEN32, _ZEN78, *_JASCO)
+_LEVITON_LOCATOR = ParameterSchema(7, "Locator LED Status", (
+    (0, "LED always off"), (254, "LED on when switch is on"), (255, "LED on when switch is off"),
+))
+_LEVITON = tuple(LEDProfile("Leviton", 0x001D, model, ((product_type, 0x0001),), (
+    LEDChannelProfile("status", "Locator LED", "toggle", _LEVITON_LOCATOR,
+        on_value=None, off_value=0, follow_load_value=254, follow_load_inverted_value=255),))
+    for model, product_type in (("DZ15S", 0x3401), ("DZ6HD", 0x3201)))
+
+PROFILES = (*_PADDLES, *_ON_OFF, _ZEN30, _ZEN32, _ZEN78, *_JASCO, *_LEVITON)
 
 
 def profile_for_device(hass, device_id) -> LEDProfile | None:
@@ -182,6 +190,8 @@ def profile_summary(hass, device_id) -> str:
     channels = discover_parameters(hass, device_id, profile)
     if not channels:
         return f"{profile.manufacturer} {profile.model} LED profile found; waiting for supported device parameter metadata."
+    if len(channels) == 1 and channels[0].definition.on_value is None:
+        return f"{profile.manufacturer} {profile.model}: one locator LED with adjustable behavior."
     features = ["on/off"]
     if any(channel.color is not None for channel in channels):
         features.append("color")

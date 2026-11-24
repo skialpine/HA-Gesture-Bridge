@@ -64,11 +64,12 @@ class GestureBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
+        legacy_controls = yaml_controls(self.hass)
         errors = {}
         if user_input is not None:
             subentries = []
             if user_input.get("import_yaml"):
-                for identity, record in yaml_controls(self.hass).items():
+                for identity, record in legacy_controls.items():
                     config = enrich_native_sources(self.hass, clean_config(record["config"]))
                     try:
                         parsed = NativeControlConfig.parse(config)
@@ -84,8 +85,8 @@ class GestureBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
             if not errors:
                 return self.async_create_entry(title="HA Gesture Bridge", data={
                     "imported_yaml": [item["unique_id"] for item in subentries]}, subentries=subentries)
-        return self.async_show_form(step_id="user", data_schema=vol.Schema({
-            vol.Optional("import_yaml", default=bool(yaml_controls(self.hass))): bool}), errors=errors, last_step=True)
+        fields = {vol.Optional("import_yaml", default=False): bool} if legacy_controls else {}
+        return self.async_show_form(step_id="user", data_schema=vol.Schema(fields), errors=errors, last_step=True)
 
 
 class ControlSubentryFlow(ConfigSubentryFlow):
@@ -158,9 +159,15 @@ class ControlSubentryFlow(ConfigSubentryFlow):
         return roles
 
     def _review_form(self, user_input=None, error=None, hint=""):
+        same_device = self._existing.get("source_device_id") == self._device_id
+        load = self._existing.get("load_entity_id") if same_device else None
+        if user_input is not None:
+            load = user_input.get("load_entity_id")
         user_input = user_input or {}
         existing_roles = self._existing.get("source_button_roles", {})
-        schema = {vol.Required("name", default=user_input.get("name", self._name)): str}
+        target = vol.Optional("load_entity_id", description={"suggested_value": load}) if load else vol.Optional("load_entity_id")
+        schema = {target: LOAD_SELECTOR,
+                  vol.Required("name", default=user_input.get("name", self._name)): str}
         options = [{"value": "__none__", "label": "None — keep original button names"}, *[
             {"value": button.button_id, "label": button.label + " — " + button.gesture_summary}
             for button in self._discovery.buttons]]
@@ -170,17 +177,14 @@ class ControlSubentryFlow(ConfigSubentryFlow):
             field = role + "_button"
             schema[vol.Required(field, default=user_input.get(field, default))] = selector.SelectSelector(
                 selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.DROPDOWN))
-        load = user_input.get("load_entity_id", self._existing.get("load_entity_id"))
-        schema[vol.Optional("load_entity_id", description={"suggested_value": load}) if load else vol.Optional("load_entity_id")] = LOAD_SELECTOR
         return self.async_show_form(step_id="review_leds" if self._configure_leds else "review",
             data_schema=vol.Schema(schema), errors={"base": error} if error else {},
             description_placeholders={"device": self._discovery.device_name,
                 "suggested_name": self._discovery.device_name[:119] + " Gestures", "hint": hint,
                 "led_notice": ("Previous device LED mappings will be removed; supported LEDs on the new device will be discovered automatically."
-                    if self._existing.get("leds") and self._existing.get("source_device_id") != self._device_id else ""),
+                    if self._existing.get("leds") and not same_device else ""),
                 "led_summary": ("Custom LED mappings are active for this device. Use Customize LED mappings to edit them; save [] to return to automatic discovery."
-                    if self._existing.get("leds") and self._existing.get("source_device_id") == self._device_id
-                    else led_summary(self.hass, self._device_id)),
+                    if self._existing.get("leds") and same_device else led_summary(self.hass, self._device_id)),
                 "inputs": "\n".join(
                 "- " + button.label + ": " + button.gesture_summary for button in self._discovery.buttons)},
             last_step=not self._configure_leds)
@@ -221,11 +225,16 @@ class ControlSubentryFlow(ConfigSubentryFlow):
         return await self.async_step_review(user_input)
 
     def _save(self, data):
-        data = enrich_native_sources(self.hass, clean_config(data))
+        data = clean_config(data)
+        if (data.get("load_entity_id") == self._existing.get("load_entity_id")
+                and self._existing.get("load_registry_id")):
+            data["load_registry_id"] = self._existing["load_registry_id"]
+        data = enrich_native_sources(self.hass, data)
         parsed = NativeControlConfig.parse(data)
         require_source_dependencies(self.hass, parsed)
         if AUTOMATIC in self._existing:
             from homeassistant.helpers import entity_registry as er
+            load_registry_id = data.get("load_registry_id")
             data = automatic_record(self._discovery, data["source_button_roles"], unique_id=self._identity,
                 name=self._name, load_entity_id=data.get("load_entity_id"), leds=data.get("leds"))
             registry = er.async_get(self.hass)
@@ -233,11 +242,8 @@ class ControlSubentryFlow(ConfigSubentryFlow):
                 if binding["kind"] == "native":
                     source = registry.async_get(binding["source_registry_id"])
                     binding["provider"] = source.platform if source else ""
-            target = registry.async_get(data["load_entity_id"]) if data.get("load_entity_id") else None
-            if target:
-                data["load_registry_id"] = target.id
-            elif data.get("load_entity_id") == self._existing.get("load_entity_id") and self._existing.get("load_registry_id"):
-                data["load_registry_id"] = self._existing["load_registry_id"]
+            if load_registry_id:
+                data["load_registry_id"] = load_registry_id
         entry = self._get_entry()
         if self._already_managed():
             return self.async_abort(reason="device_already_configured")

@@ -29,7 +29,7 @@ YAML_CONTROL = {"platform": DOMAIN, "unique_id": "office_existing", "name": "Exi
 
 async def create_installation(hass, import_yaml=False):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"import_yaml": import_yaml})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"import_yaml": True} if import_yaml else {})
     await hass.async_block_till_done()
     entry = result["result"]
     assert entry.state is ConfigEntryState.LOADED

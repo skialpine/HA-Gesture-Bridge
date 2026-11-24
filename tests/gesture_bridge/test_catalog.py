@@ -46,7 +46,7 @@ async def add_catalog(hass):
 
 async def test_empty_installation_has_stable_catalog_without_controls(hass):
     flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(flow["flow_id"], {"import_yaml": False})
+    result = await hass.config_entries.flow.async_configure(flow["flow_id"], {})
     await hass.async_block_till_done()
     entry = result["result"]
     sensor = hass.states.get("sensor.ha_gesture_bridge_catalog")
@@ -172,7 +172,7 @@ async def test_malformed_or_unrelated_aggregates_cannot_enter_catalog(hass):
 
 async def test_device_area_association_entity_override_and_disabled_device(hass):
     flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(flow["flow_id"], {"import_yaml": False})
+    result = await hass.config_entries.flow.async_configure(flow["flow_id"], {})
     await hass.async_block_till_done()
     entry = result["result"]
     device_area = ar.async_get(hass).async_create("Device Area")
@@ -189,6 +189,31 @@ async def test_device_area_association_entity_override_and_disabled_device(hass)
     assert build_catalog(hass)[0]["area_name"] == "Entity Area"
     dr.async_get(hass).async_update_device(device.id, disabled_by=dr.DeviceEntryDisabler.USER)
     assert build_catalog(hass) == []
+
+
+async def test_linked_feedback_keeps_catalog_names_and_aliases(hass, monkeypatch):
+    load = register(hass, "light", "fixture_lamp")
+    event = register(hass, "event", "fixture_paddle", platform=DOMAIN)
+    attrs = bridge_attrs()
+    attrs["bridge_load"]["entity_id"] = load.entity_id
+    hass.states.async_set(load.entity_id, "on")
+    hass.states.async_set(event.entity_id, "unknown", attrs)
+    _, catalog = await add_catalog(hass)
+    before = catalog.extra_state_attributes
+    rebuild = Mock(wraps=build_catalog)
+    monkeypatch.setattr(sensor_module, "build_catalog", rebuild)
+
+    hass.states.async_set(load.entity_id, "off")
+    updated = deepcopy(attrs)
+    updated["bridge_load"]["state"] = "off"
+    hass.states.async_set(event.entity_id, "unknown", updated)
+    await hass.async_block_till_done()
+    after = catalog.extra_state_attributes
+    assert after["catalog_revision"] != before["catalog_revision"]
+    assert after["catalog_names_revision"] == before["catalog_names_revision"]
+    assert after["catalog_entities"][0]["entity_aliases"] == [load.entity_id]
+    assert after["catalog_entities"][0]["attributes"]["bridge_load"]["state"] == "off"
+    rebuild.assert_not_called()
 
 
 async def test_load_metadata_churn_does_not_rebuild_catalog_or_emit_gestures(hass, monkeypatch):
@@ -341,7 +366,7 @@ def test_unrepresentable_names_projection_reports_error_instead_of_truncation():
 
 async def installation(hass):
     flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(flow["flow_id"], {"import_yaml": False})
+    result = await hass.config_entries.flow.async_configure(flow["flow_id"], {})
     await hass.async_block_till_done()
     return result["result"]
 

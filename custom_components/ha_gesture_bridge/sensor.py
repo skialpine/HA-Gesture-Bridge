@@ -37,13 +37,13 @@ def names_attributes(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return paged_attributes(names, "catalog_names")
 
 
-def paged_attributes(records, prefix):
+def paged_attributes(records, prefix, *, max_bytes=NAMES_MAX_BYTES, max_pages=NAMES_MAX_PAGES):
     """One bounded JSON paging policy for entity and physical-device views."""
     encoded = [json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=True) for row in records]
     canonical = "[" + ",".join(encoded) + "]"
     result = {prefix + "_version": 1, prefix + "_revision": sha256(canonical.encode()).hexdigest(),
               prefix + "_total": len(records), prefix + "_pages": 0}
-    if len(records) > 10000 or len(canonical) > NAMES_MAX_BYTES:
+    if len(records) > 10000 or len(canonical) > max_bytes:
         return result | {prefix + "_error": "catalog_limit"}
     pages, page, size = [], [], 2
     for row, raw in zip(records, encoded, strict=True):
@@ -57,7 +57,7 @@ def paged_attributes(records, prefix):
         page.append(row)
     if page:
         pages.append(page)
-    if len(pages) > NAMES_MAX_PAGES:
+    if len(pages) > max_pages:
         return result | {prefix + "_error": "catalog_limit"}
     result[prefix + "_pages"] = len(pages)
     return result | {f"{prefix}_page_{index:03d}": page for index, page in enumerate(pages, 1)}
@@ -372,7 +372,7 @@ class GestureCatalogSensor(SensorEntity):
         choices = device_choices(self.hass)
         devices = paged_attributes(choices, "catalog_devices")
         rows = build_catalog(self.hass)
-        revision = sha256(json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+        revision = self._row_revision(rows)
         if revision == self._revision and devices == self._devices:
             return
         self._rows, self._revision = rows, revision
@@ -380,6 +380,10 @@ class GestureCatalogSensor(SensorEntity):
         self._devices = devices
         if write:
             self.async_write_ha_state()
+
+    @staticmethod
+    def _row_revision(rows):
+        return sha256(json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
 
     @callback
     def _registry_changed(self, event: Event) -> None:
@@ -398,10 +402,26 @@ class GestureCatalogSensor(SensorEntity):
             return
         # Ignore volatile brightness, native event timestamps and gesture IDs.
         # Reusing the catalog projection keeps every discovery field significant.
-        if _catalog_row(self.hass, entry, event.data.get("old_state")) != _catalog_row(
-            self.hass, entry, event.data.get("new_state")
-        ):
-            self._refresh()
+        before = _catalog_row(self.hass, entry, event.data.get("old_state"))
+        after = _catalog_row(self.hass, entry, event.data.get("new_state"))
+        if before == after:
+            return
+        if before and after:
+            previous = before["attributes"].get("bridge_load") if entry.domain == "event" else before
+            current = after["attributes"].get("bridge_load") if entry.domain == "event" else after
+            if previous and current and previous["state"] in {"on", "off"} and current["state"] in {"on", "off"}:
+                previous["state"] = current["state"]
+                if before == after:
+                    # Ordinary feedback leaves chosen representations and names intact.
+                    for row in self._rows:
+                        if row["entity_id"] == entity_id:
+                            live = row["attributes"]["bridge_load"] if entry.domain == "event" else row
+                            live["state"] = current["state"]
+                            self._revision = self._row_revision(self._rows)
+                            self.async_write_ha_state()
+                            break
+                    return
+        self._refresh()
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

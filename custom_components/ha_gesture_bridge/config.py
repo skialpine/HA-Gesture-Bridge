@@ -122,13 +122,14 @@ class NativeControlConfig:
     source_configs: tuple[SourceConfig, ...] = ()
     leds: tuple[LEDConfig, ...] = ()
     source_device_id: str | None = None
+    load_registry_id: str | None = None
 
     @classmethod
     def parse(cls, data: dict[str, Any]) -> NativeControlConfig:
         if not isinstance(data, dict):
             raise ValueError("A native control must be a mapping")
         if set(data) - {"unique_id", "name", "source_entity_id", "source_registry_id", "button_id",
-                        "button_label", "actions", "buttons", "sources", "load_entity_id",
+                        "button_label", "actions", "buttons", "sources", "load_entity_id", "load_registry_id",
                         "platform", "entity_namespace", "scan_interval", "leds", "source_device_id", "source_button_roles"}:
             raise ValueError("Unknown control configuration field")
         if "source_device_id" in data:
@@ -141,6 +142,11 @@ class NativeControlConfig:
                 text(identity, "detected button ID", KEY); text(role, "button role", KEY)
             if len(set(roles.values())) != len(roles):
                 raise ValueError("Detected button roles must be distinct")
+        load_registry_id = None
+        if "load_registry_id" in data:
+            if not data.get("load_entity_id"):
+                raise ValueError("A load entity is required with a load registry ID")
+            load_registry_id = text(data["load_registry_id"], "load registry ID", IDENTITY)
         leds = parse_leds(data.get("leds", []))
         if "sources" in data:
             if any(key in data for key in ("buttons", "source_entity_id", "source_registry_id", "button_id", "button_label", "actions")):
@@ -176,7 +182,7 @@ class NativeControlConfig:
             return cls(text(data.get("unique_id"), "control identity", IDENTITY), text(data.get("name"), "control name"),
                        first.source_entity_id, first.id, first.label, first.actions,
                        entity_id(load, {"switch", "input_boolean", "light"}) if load is not None else None,
-                       buttons, sources, leds=leds, source_device_id=data.get("source_device_id"))
+                       buttons, sources, leds=leds, source_device_id=data.get("source_device_id"), load_registry_id=load_registry_id)
         if "buttons" in data:
             if any(key in data for key in ("source_entity_id", "source_registry_id", "button_id", "button_label", "actions")):
                 raise ValueError("buttons cannot be mixed with legacy source/action fields")
@@ -202,7 +208,7 @@ class NativeControlConfig:
         return cls(text(data.get("unique_id"), "control identity", IDENTITY),
             text(data.get("name"), "control name"), first.source_entity_id, first.id, first.label, first.actions,
             entity_id(load, {"switch", "input_boolean", "light"}) if load is not None else None, buttons,
-            leds=leds, source_device_id=data.get("source_device_id"))
+            leds=leds, source_device_id=data.get("source_device_id"), load_registry_id=load_registry_id)
 
     @property
     def inputs(self) -> tuple[NativeButtonConfig, ...]:

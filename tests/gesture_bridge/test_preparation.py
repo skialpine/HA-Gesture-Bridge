@@ -89,6 +89,27 @@ async def test_first_use_concurrency_restart_and_pinned_missing_native_state(has
     assert again["gesture_entity_id"] == identity and len(entry.subentries) == 1
 
 
+async def test_preparation_resolves_selected_endpoint_after_enrollment(hass, monkeypatch):
+    from custom_components.ha_gesture_bridge.preparation import Preparation
+
+    entry = await install(hass)
+    device, _ = device_fixture(hass, entry)
+    endpoint = relay(hass, device)
+    service = Preparation(hass)
+
+    async def enroll(_):
+        renamed = er.async_get(hass).async_update_entity(endpoint.entity_id, new_entity_id="switch.renamed")
+        hass.states.async_set(renamed.entity_id, "on")
+        hass.states.async_set(endpoint.entity_id, "off")
+        return None
+
+    monkeypatch.setattr(service, "_enroll", enroll)
+    prepared = await service.prepare(device.id, endpoint.id)
+    for field in ("source_load", "controlled_load"):
+        assert prepared[field] == {"entity_id": "switch.renamed", "registry_id": endpoint.id,
+                                   "domain": "switch", "available": True}
+
+
 async def test_manual_setup_during_preparation_reuses_its_control(hass, monkeypatch):
     import custom_components.ha_gesture_bridge.preparation as preparation
 
@@ -146,6 +167,46 @@ async def test_load_only_and_cross_device_endpoint(hass):
         await prepare(hass, other, endpoint)
 
 
+@pytest.mark.parametrize("registry_change", [
+    {"disabled_by": er.RegistryEntryDisabler.USER},
+    {"hidden_by": er.RegistryEntryHider.USER},
+])
+async def test_ineligible_aggregate_leaves_relay_available_without_gestures(hass, registry_change):
+    entry = await install(hass)
+    device, _ = device_fixture(hass, entry)
+    endpoint = relay(hass, device)
+    enrolled = await prepare(hass, device, endpoint)
+    event = enrolled["gesture_entity_id"]
+    assert enrolled["input_ready"]
+    await hass.async_block_till_done()
+
+    er.async_get(hass).async_update_entity(event, **registry_change)
+    await hass.async_block_till_done()
+    picker = await hass.services.async_call(DOMAIN, "get_devices", {}, blocking=True, return_response=True)
+    choice = next(row["attributes"]["device_choice"] for row in picker["entities"]
+                  if row["entity_id"] == f"device:{device.id}:{endpoint.id}")
+    result = await prepare(hass, device, endpoint)
+    assert choice["gestures"] == "candidate" and "gesture_entity_id" not in choice
+    assert "gesture_entity_id" not in result and "control_id" not in result
+    assert result["input_ready"] is False
+    assert result["source_load"] == result["controlled_load"] == enrolled["source_load"]
+    assert result["controlled_load_origin"] == "selected_endpoint"
+    assert len(entry.subentries) == 1
+
+
+async def test_disabled_button_only_aggregate_is_unavailable(hass):
+    entry = await install(hass)
+    device, _ = device_fixture(hass, entry)
+    enrolled = await prepare(hass, device)
+    await hass.async_block_till_done()
+    er.async_get(hass).async_update_entity(enrolled["gesture_entity_id"], disabled_by=er.RegistryEntryDisabler.USER)
+    await hass.async_block_till_done()
+
+    assert not any(choice["device_id"] == device.id for choice in device_choices(hass))
+    with pytest.raises(ServiceValidationError, match="^device_unavailable$"):
+        await prepare(hass, device)
+
+
 async def test_extended_device_identifiers_do_not_break_catalog_or_preparation(hass):
     entry = await install(hass)
     device = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id,
@@ -173,6 +234,7 @@ async def test_explicit_link_wins_and_deleted_target_never_falls_back(hass):
     await hass.config_entries.subentries.async_configure(form["flow_id"], default_input(form) | {"load_entity_id": bulb.entity_id})
     await hass.async_block_till_done()
     sub = next(iter(entry.subentries.values()))
+    assert sub.data["load_registry_id"] == bulb.id
     original_id = sub.unique_id
     result = await prepare(hass, device, endpoint)
     await hass.async_block_till_done()
@@ -180,18 +242,39 @@ async def test_explicit_link_wins_and_deleted_target_never_falls_back(hass):
     assert result["source_load"]["entity_id"] == endpoint.entity_id
     assert result["controlled_load"]["entity_id"] == bulb.entity_id
     assert result["controlled_load_origin"] == "explicit_link"
+    registry = er.async_get(hass)
+    registry.async_update_entity(result["gesture_entity_id"], hidden_by=er.RegistryEntryHider.USER)
+    without_gestures = await prepare(hass, device, endpoint)
+    assert "gesture_entity_id" not in without_gestures and "control_id" not in without_gestures
+    assert without_gestures["controlled_load"] == result["controlled_load"]
+    assert without_gestures["controlled_load_origin"] == "explicit_link"
+    registry.async_update_entity(result["gesture_entity_id"], hidden_by=None)
+    old_entity_id = bulb.entity_id
+    bulb = registry.async_update_entity(bulb.entity_id, new_entity_id="light.renamed_bulb")
+    hass.states.async_set(bulb.entity_id, "on", {"supported_color_modes": ["brightness"]})
+    hass.states.async_set(old_entity_id, "off")
+    await hass.async_block_till_done()
+    snapshot = hass.states.get(result["gesture_entity_id"]).attributes["bridge_load"]
+    assert (snapshot["entity_id"], snapshot["state"]) == (bulb.entity_id, "on")
+    renamed = await prepare(hass, device, endpoint)
+    assert renamed["controlled_load"]["entity_id"] == snapshot["entity_id"]
     er.async_get(hass).async_update_entity(bulb.entity_id, disabled_by=er.RegistryEntryDisabler.USER)
     disabled = await prepare(hass, device, endpoint)
     assert disabled["controlled_load"]["available"] is False
     assert "registry_id" not in disabled["controlled_load"]
     er.async_get(hass).async_update_entity(bulb.entity_id, disabled_by=None)
     er.async_get(hass).async_remove(bulb.entity_id)
-    replacement = er.async_get(hass).async_get_or_create("light", "fixture", "replacement", suggested_object_id="bulb")
+    replacement = registry.async_get_or_create("light", "fixture", "replacement", suggested_object_id="renamed_bulb")
     assert replacement.id != bulb.id
+    hass.states.async_set(replacement.entity_id, "on")
+    await hass.async_block_till_done()
+    snapshot = hass.states.get(result["gesture_entity_id"]).attributes["bridge_load"]
+    assert not snapshot["available"]
     result = await prepare(hass, device, endpoint)
-    assert result["controlled_load"]["entity_id"] == bulb.entity_id
+    assert result["controlled_load"]["entity_id"] == old_entity_id
     assert result["controlled_load"]["available"] is False
     assert result["controlled_load_origin"] == "explicit_link"
+
 
 
 async def test_non_admin_denied_before_inspection_or_existing_lookup(hass, monkeypatch):

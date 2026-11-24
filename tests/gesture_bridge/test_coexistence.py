@@ -14,7 +14,7 @@ async def test_deviceside_services_remain_owned_and_are_never_called_automatical
         hass.services.async_register("deviceside", name, deviceside_service)
     original = dict(hass.services.async_services()["deviceside"])
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"import_yaml": False})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
     entry = result["result"]
     device = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id,

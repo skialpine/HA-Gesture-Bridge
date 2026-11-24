@@ -13,10 +13,10 @@ from homeassistant.components.event import EventEntity, PLATFORM_SCHEMA as EVENT
 from homeassistant.core import Event, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
 from .config import CONTRACT_VERSION, DOMAIN, NativeControlConfig
+from .entity_binding import RegistryEntityBinding
 from .sources import SourceAdapter
 from .latency import async_setup_latency
 from .leds import LEDController
@@ -86,6 +86,7 @@ class GestureBridgeEvent(EventEntity):
         self._sequence = 0
         self._update_kind = "snapshot"
         self._leds = None
+        self._load_binding = None
 
     @property
     def _source_ready(self) -> bool:
@@ -123,9 +124,11 @@ class GestureBridgeEvent(EventEntity):
         return result
 
     def _load_snapshot(self) -> dict[str, Any] | None:
-        if (target := self.config.load_entity_id) is None:
+        if (declared := self.config.load_entity_id) is None:
             return None
-        state = self.hass.states.get(target)
+        target = self._load_binding.entity_id if self._load_binding else None
+        state = self.hass.states.get(target) if target else None
+        target = target or declared
         value = state.state if state is not None and state.state in ("on", "off", "unknown", "unavailable") else "unavailable"
         domain = target.split(".", 1)[0]
         result = {"entity_id": target, "domain": domain, "state": value,
@@ -157,6 +160,13 @@ class GestureBridgeEvent(EventEntity):
         # readiness metadata and ownership checks contain only live adapters.
         self._adapters.clear()
         self._leds = None
+        if self.config.load_entity_id:
+            self._load_binding = RegistryEntityBinding(
+                self.hass, self.config.load_entity_id, self.config.load_registry_id,
+                self._load_changed, self._load_baseline, frozenset({"light", "switch", "input_boolean"}),
+            )
+            self.async_on_remove(self._load_binding.close)
+            self._load_binding.start()
         if self.config.leds:
             self._leds = LEDController(self.hass, self, self.config.leds, self._snapshot)
         elif self.config.source_device_id:
@@ -177,8 +187,6 @@ class GestureBridgeEvent(EventEntity):
             await adapter.async_start()
             if adapter.error:
                 self._error_count += 1
-        if self.config.load_entity_id:
-            self.async_on_remove(async_track_state_change_event(self.hass, [self.config.load_entity_id], self._load_changed))
         self.async_on_remove(self._clear_holds)
 
     @callback
@@ -242,6 +250,11 @@ class GestureBridgeEvent(EventEntity):
     def _snapshot(self) -> None:
         self._update_kind = "snapshot"
         self.async_write_ha_state()
+
+    @callback
+    def _load_baseline(self, target, state, initial, old) -> None:
+        if not initial:
+            self._snapshot()
 
     @callback
     def _load_changed(self, event: Event) -> None:

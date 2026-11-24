@@ -127,10 +127,12 @@ Each list item contains:
 | `available` | boolean | All required discovered or explicitly configured endpoints can currently be used |
 | `colors` | list of uppercase six-hex strings | Exact supported palette, at most 64 nonblack colors plus optional `000000` |
 | `brightness_supported` | boolean | The discovered or explicitly configured LED supports brightness |
+| `brightness_levels` | optional ordered list of integer percentages | Exact choices for a verified discrete brightness setting |
 | `color_supported` | boolean | The LED has an independently writable color setting |
 | `behaviors` | list of stable strings | Supported explicit behaviors: `follow_load`, `follow_load_inverted`, `always_on`, `always_off` |
 | `behavior` | optional stable string | Last confirmed device behavior; must be one of its supported behaviors |
 | `color` | optional six-hex string | Last confirmed mapped color; black requires explicit confirmed power-off |
+| `configured_color` | optional six-hex string | Last confirmed nonblack color stored in the device's independently writable color setting, regardless of power or behavior |
 | `brightness` | optional number 0–100 | Last confirmed mapped percentage |
 
 At most 16 channels are advertised. Channel IDs and logical button IDs are unique within a control. IDs use `[a-z][a-z0-9_]{0,63}`. A missing current color/brightness is unknown, not zero. A device profile must validate its actual reported parameter metadata before granting control; a matching model name alone is insufficient. Receivers must not infer capabilities from model, label or a related load. Metadata omits backend HA entity IDs and option names.
@@ -147,6 +149,23 @@ HA accepts exact palette colors, normalizes hex case and chooses the nearest sup
 C4 bound-device following is a receiver policy, not a Zooz hardware mode. The receiver sends an explicit `always_on` plus the chosen nonblack on/off color, or `always_off` for a chosen black color, after actual connected-device feedback. Changing saved on/off colors alone does not issue a device command. Setup, reconnect and snapshots never reapply a behavior or send LED commands.
 
 See [LED setup](leds.md) for configuration examples, registry pinning and failure behavior.
+
+## Installation proof
+
+An authenticated WebSocket client can call `ha_gesture_bridge/installation_proof`
+to receive version 1, a fresh 32-character lowercase hexadecimal nonce, and a
+64-character lowercase hexadecimal proof. It can repeat the command with the
+same nonce to verify the running instance did not change.
+
+The fixed HTTP GET path `/api/ha_gesture_bridge/installation_proof/{nonce}`
+returns the same three fields for that nonce without credentials. Responses
+use `Cache-Control: no-store`. The proof is derived from a private key unique
+to the running Home Assistant. The endpoint returns no entity, user, or
+installation identifiers and changes no state. Proofs expire when the
+integration reloads or Home Assistant restarts.
+
+Reverse proxies serving an alternate Home Assistant address must route this
+path to the same backend as the Home Assistant API on that address.
 
 
 ### Physical source discovery

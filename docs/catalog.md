@@ -90,6 +90,20 @@ revision when requesting later pages. If the list changes during a transfer, the
 service returns `snapshot_changed`. Sending a matching revision on page 1 gives
 an unchanged confirmation without `entities`.
 
+The picker keeps its result until a relevant HA state, registry, or config
+entry changes. Requests for an unchanged revision return the manifest from
+that cache. `native_revision` is a separate opaque token for consumers that
+also read native lighting metadata. It changes when inputs to that native
+projection may have changed, even when the picker revision stays the same. To
+qualify a new supplement, obtain the same token before and after reading its
+state and registry records. An HA restart changes the token. Regular on/off
+feedback and brightness changes leave it warm. The picker service supports
+5,000 rows and 256 pages with a 16 KiB page and 4 MiB aggregate limit.
+
+Physical device choices can include `attributes.device_choice.source_load.name`
+with the Home Assistant endpoint’s display name. It is capped at 128 characters
+and omitted when the only available label is the entity ID.
+
 Starting with HA Gesture Bridge 0.1.3, `eligibility_version: 1` accompanies every
 response, including unchanged confirmations. It guarantees that the service excludes disabled devices and
 disabled, hidden, configuration or diagnostic entities. It excludes Control4

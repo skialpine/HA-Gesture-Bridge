@@ -13,6 +13,7 @@ from homeassistant.helpers import entity_registry as er
 from .config import DOMAIN, NativeControlConfig
 from .device_discovery import valid_native_event_types
 from .entity_binding import RegistryEntityBinding
+from .installation_proof import async_setup_installation_proof
 from .latency import async_setup_latency
 from .leds import async_setup_leds
 
@@ -48,13 +49,16 @@ def watch_native_metadata(hass, entry, binding):
 
 
 def enrich_native_sources(hass: HomeAssistant, data: dict) -> dict:
-    """Persist source registry identity and resolve current names for editing.
+    """Persist registry identities and resolve current names for editing.
 
     Existing registry UUIDs take precedence over text IDs: a deleted source
     must never silently attach to a different entity reusing its former name.
     """
     result = deepcopy(data)
     registry = er.async_get(hass)
+    load_id = result.get("load_registry_id") or result.get("load_entity_id")
+    if isinstance(load_id, str) and (load := registry.async_get(load_id)):
+        result.update(load_entity_id=load.entity_id, load_registry_id=load.id)
     records = [result, *result.get("buttons", []), *result.get("sources", [])]
     for record in records:
         if not isinstance(record, dict) or "source_entity_id" not in record:
@@ -87,6 +91,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {}).setdefault("yaml_controls", {})
     async_setup_latency(hass)
     async_setup_leds(hass)
+    async_setup_installation_proof(hass)
     from .preparation import async_setup_preparation
     async_setup_preparation(hass)
     from .picker import async_setup_picker

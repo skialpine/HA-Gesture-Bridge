@@ -29,14 +29,44 @@ async def test_one_list_revision_is_stable_across_load_changes(hass, monkeypatch
     assert first["total"] == len(first["entities"]) == 1
     choice = first["entities"][0]["attributes"]["device_choice"]
     assert choice["device_id"] == device.id
+    assert choice["source_load"]["name"] == "relay"
     hass.states.async_set(load.entity_id, "on")
     assert await read(hass, revision=first["revision"]) == {
         "version": 1, "eligibility_version": 1, "revision": first["revision"], "unchanged": True,
+        "native_revision": first["native_revision"],
         "page": 1, "pages": 1, "total": 1}
+    hass.states.async_set(load.entity_id, "on", {"friendly_name": "Cabinet Lights"})
+    renamed = await read(hass, revision=first["revision"])
+    assert not renamed["unchanged"] and renamed["revision"] != first["revision"]
+    assert renamed["entities"][0]["attributes"]["device_choice"]["source_load"]["name"] == "Cabinet Lights"
     er.async_get(hass).async_update_entity(load.entity_id, entity_category=EntityCategory.CONFIG)
-    changed = await read(hass, revision=first["revision"])
-    assert not changed["unchanged"] and changed["revision"] != first["revision"]
+    changed = await read(hass, revision=renamed["revision"])
+    assert not changed["unchanged"] and changed["revision"] != renamed["revision"]
+    assert "source_load" not in changed["entities"][0]["attributes"]["device_choice"]
     assert not entry.subentries and forbidden.await_count == 0
+
+
+async def test_native_revision_covers_supplement_inputs_without_rebuilding_on_steady_feedback(hass, monkeypatch):
+    from custom_components.ha_gesture_bridge import picker
+
+    await install(hass)
+    registry = er.async_get(hass)
+    row = registry.async_get_or_create("input_boolean", "input_boolean", "native_only")
+    hass.states.async_set(row.entity_id, "off", {"friendly_name": "Benchmark"})
+    first = await read(hass)
+    with patch.object(picker, "picker_rows", side_effect=AssertionError("unchanged request rebuilt the picker")):
+        hass.states.async_set("sensor.unrelated", "42")
+        hass.states.async_set(row.entity_id, "on", {"friendly_name": "Benchmark"})
+        warm = await read(hass, revision=first["revision"])
+    assert warm["unchanged"] and warm["native_revision"] == first["native_revision"]
+
+    registry.async_update_entity(row.entity_id, hidden_by=er.RegistryEntryHider.USER)
+    hidden = await read(hass, revision=first["revision"])
+    assert hidden["unchanged"] and hidden["native_revision"] != warm["native_revision"]
+
+    hass.states.async_set(row.entity_id, "unavailable", {"friendly_name": "Benchmark"})
+    unavailable = await read(hass, revision=first["revision"])
+    assert unavailable["native_revision"] != hidden["native_revision"]
 
 
 async def test_native_groups_keep_kind_but_not_live_levels_or_c4_mirrors(hass):
@@ -125,7 +155,9 @@ async def test_real_switch_as_light_config_hides_base_without_losing_visible_wra
     wrapper = registry.async_get_or_create("light", "switch_as_x", "wrapper", config_entry=wrapper_entry)
     first = await read(hass)
     assert first["total"] == 1
-    assert first["entities"][0]["attributes"]["device_choice"]["source_load"]["entity_id"] == wrapper.entity_id
+    endpoint = first["entities"][0]["attributes"]["device_choice"]["source_load"]
+    assert endpoint["entity_id"] == wrapper.entity_id
+    assert "name" not in endpoint
 
     assert selected_endpoint(hass, device.id, source.id).id == wrapper.id
     registry.async_update_entity(source.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION)

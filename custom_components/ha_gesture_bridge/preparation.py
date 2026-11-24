@@ -16,7 +16,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.service import async_register_admin_service
 
 from .config import DOMAIN, NativeControlConfig
-from .device_catalog import eligible_device, has_identifier, load_record, selected_endpoint
+from .device_catalog import control_event, eligible_device, has_identifier, load_record, selected_endpoint
 from .device_discovery import (
     DeviceDiscovery, DiscoveredButton, SourceMetadataUnavailable, _trigger_input,
     discover_device, valid_native_event_types,
@@ -74,7 +74,7 @@ def automatic_record(discovery, roles, *, unique_id, name, load_entity_id=None, 
 def runtime_config(hass, data):
     """Derive mappings inside pinned sources, including absent native states."""
     if AUTOMATIC not in data:
-        return {key: deepcopy(value) for key, value in data.items() if key != "load_registry_id"}
+        return {key: deepcopy(value) for key, value in data.items()}
     recipe = data[AUTOMATIC]
     if recipe.get("version") != 1 or not 1 <= len(recipe.get("bindings", [])) <= 32:
         raise ValueError("invalid_automatic_sources")
@@ -107,6 +107,8 @@ def runtime_config(hass, data):
     roles = {item["button_id"]: item["role"] for item in recipe["bindings"]}
     result = discovery.build_config(roles, unique_id=data["unique_id"], name=data["name"],
                                    load_entity_id=data.get("load_entity_id"))
+    if data.get("load_registry_id"):
+        result["load_registry_id"] = data["load_registry_id"]
     if data.get("leds"):
         result["leds"] = deepcopy(data["leds"])
     return result
@@ -138,7 +140,7 @@ class Preparation:
         self.hass = hass
         self.pending = {}
 
-    async def prepare(self, device_id, source_registry_id=None):
+    def _selection(self, device_id, source_registry_id):
         device = dr.async_get(self.hass).async_get(device_id)
         if not eligible_device(self.hass, device):
             raise ServiceValidationError("device_unavailable")
@@ -146,22 +148,30 @@ class Preparation:
             source = selected_endpoint(self.hass, device_id, source_registry_id) if source_registry_id else None
         except ValueError as error:
             raise ServiceValidationError("invalid_endpoint") from error
+        return device, source
+
+    async def prepare(self, device_id, source_registry_id=None):
+        self._selection(device_id, source_registry_id)
         if device_id not in self.pending:
             task = self.hass.async_create_task(self._enroll(device_id))
             self.pending[device_id] = task
             task.add_done_callback(lambda finished: self.pending.pop(device_id, None))
         subentry = await asyncio.shield(self.pending[device_id])
+        device, source = self._selection(device_id, source_registry_id)
         data = dict(subentry.data) if subentry else {}
         result = {"version": 1, "device_id": device_id,
                   "name": (device.name_by_user or device.name or "HA Device")[:128], "input_ready": False,
                   **resolve_loads(self.hass, data, source)}
         if subentry:
-            entity_id = er.async_get(self.hass).async_get_entity_id("event", DOMAIN, subentry.unique_id)
-            if not entity_id:
+            gesture, eligible = control_event(self.hass, subentry.unique_id)
+            if gesture is None:
                 raise ServiceValidationError("preparation_failed")
-            state = self.hass.states.get(entity_id)
-            result.update(gesture_entity_id=entity_id, control_id=subentry.unique_id,
-                input_ready=bool(state and any(item.get("ready") for item in state.attributes.get("bridge_sources", []))))
+            if eligible:
+                state = self.hass.states.get(gesture.entity_id)
+                result.update(gesture_entity_id=gesture.entity_id, control_id=subentry.unique_id,
+                    input_ready=bool(state and any(item.get("ready") for item in state.attributes.get("bridge_sources", []))))
+            elif "controlled_load" not in result:
+                raise ServiceValidationError("device_unavailable")
         return result
 
     async def _enroll(self, device_id):
@@ -176,13 +186,7 @@ class Preparation:
                 raise ServiceValidationError("conflicting_controls")
             if not existing:
                 return None
-            subentry = existing[0]
-            if subentry.data.get("load_entity_id") and not subentry.data.get("load_registry_id"):
-                target = er.async_get(self.hass).async_get(subentry.data["load_entity_id"])
-                if target:
-                    self.hass.config_entries.async_update_subentry(entry, subentry,
-                        data=dict(subentry.data) | {"load_registry_id": target.id})
-            return subentry
+            return existing[0]
 
         if subentry := current_control():
             return subentry

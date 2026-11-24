@@ -119,18 +119,18 @@ def discover_indicators(hass, device_id):
 
 def indicator_summary(hass, device_id):
     """Describe automatic discovery without probing hardware or requiring Z-Wave."""
+    unavailable = "No status lights available."
     node = _resolve_node(hass, device_id)
     if node is None:
-        return "No standard Z-Wave status LED controls detected."
+        return unavailable
     channels = discover_indicators(hass, device_id)
     if channels:
         count = len(channels)
-        brightness = any(channel.level_id for channel in channels)
-        return f"{count} standard Z-Wave indicator{'s' if count != 1 else ''}: on/off" + (", brightness." if brightness else ".")
+        controls = "on/off and brightness" if any(channel.level_id for channel in channels) else "on/off"
+        return f"{count} status light{'s' if count != 1 else ''} available with {controls} controls."
     identify = any(value.command_class == INDICATOR_CC and value.property_ in (0x50, "identify")
                    for value in node.values.values())
-    return ("Z-Wave exposes identification blinking only; no standard status LED control."
-            if identify else "No standard Z-Wave status LED controls detected.")
+    return unavailable + (" The device can blink for identification." if identify else "")
 
 
 class ZWaveIndicatorController:

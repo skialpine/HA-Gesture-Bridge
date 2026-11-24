@@ -4,14 +4,17 @@
     "step": {
       "user": {
         "title": "HA Gesture Bridge",
-        "description": "Add the integration once. Compatible consumers prepare a device when you select it; no separate gesture-control wizard is needed. Use Add control for advanced or HA-only setup, and Configure to customize an activated device.",
+        "description": "After adding HA Gesture Bridge, open **Home Assistant Connection → Quick Setup** in Control4 Composer and choose a device.\n\nFor Home Assistant automations, open **Settings → Devices & services → HA Gesture Bridge** and select **Add control**.",
         "data": {
-          "import_yaml": "Import currently loaded YAML controls into the UI"
+          "import_yaml": "Import existing YAML controls"
+        },
+        "data_description": {
+          "import_yaml": "Manage your existing controls here while keeping their entity IDs. Leave this off to keep managing them in YAML."
         }
       }
     },
     "abort": {
-      "single_instance_allowed": "HA Gesture Bridge is already installed. Select a device in your consumer, or use Configure for an activated control."
+      "single_instance_allowed": "HA Gesture Bridge is already installed. Open Quick Setup in Control4 Composer to choose a device. To edit a control in Home Assistant, open Settings → Devices & services → HA Gesture Bridge and select Configure on that control."
     },
     "error": {
       "mqtt_not_configured": "Add and configure the MQTT integration first, then import these controls."
@@ -34,13 +37,13 @@
         },
         "review": {
           "title": "Review your control",
-          "description": "Suggested name: **{suggested_name}**. You can edit the control name.\n\nDetected inputs for **{device}**:\n\n{inputs}\n\nAssign the actual paddles to Top, Bottom or Toggle. Each input can be assigned once. Inputs left unassigned keep their original names. Only the gestures this device exposes are exported. Linking a load is optional and never operates it automatically.\n\n**Status LEDs:** {led_summary}\n\n{hint}\n\n{led_notice}",
+          "description": "Review the buttons for **{device}**.\n\nChoose a light or switch for Control4. When changing devices, choose the target again. Save with the field empty to leave it unlinked.\n\n{inputs}\n\nAssign each button once. Unassigned buttons keep their names. You can name this control **{suggested_name}**.\n\n{led_summary}\n\n{hint}\n\n{led_notice}",
           "data": {
             "name": "Control name",
             "top_button": "Top button",
             "bottom_button": "Bottom button",
             "toggle_button": "Toggle button",
-            "load_entity_id": "Optional linked switch or light"
+            "load_entity_id": "Linked light or switch (optional)"
           },
           "submit": "Save"
         },
@@ -54,13 +57,13 @@
         },
         "review_leds": {
           "title": "Review your control",
-          "description": "Suggested name: **{suggested_name}**. You can edit the control name.\n\nDetected inputs for **{device}**:\n\n{inputs}\n\nAssign the actual paddles to Top, Bottom or Toggle. Each input can be assigned once. Inputs left unassigned keep their original names. Only the gestures this device exposes are exported. Linking a load is optional and never operates it automatically.\n\n**Status LEDs:** {led_summary}\n\n{hint}\n\n{led_notice}",
+          "description": "Review the buttons for **{device}**.\n\nChoose a light or switch for Control4. When changing devices, choose the target again. Save with the field empty to leave it unlinked.\n\n{inputs}\n\nAssign each button once. Unassigned buttons keep their names. You can name this control **{suggested_name}**.\n\n{led_summary}\n\n{hint}\n\n{led_notice}",
           "data": {
             "name": "Control name",
             "top_button": "Top button",
             "bottom_button": "Bottom button",
             "toggle_button": "Toggle button",
-            "load_entity_id": "Optional linked switch or light"
+            "load_entity_id": "Linked light or switch (optional)"
           },
           "submit": "Next"
         }
